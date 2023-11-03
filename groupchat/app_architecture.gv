@@ -1,0 +1,20 @@
+// App Architecture
+digraph {
+	A [label=User]
+	B [label="Amazon Cognito"]
+	C [label="Amazon S3"]
+	D [label=DynamoDB]
+	E [label="AWS Lambda"]
+	F [label=GameLift]
+	G [label=AppSync]
+	H [label="AWS Analytics"]
+	I [label="Amazon Pinpoint"]
+	A -> B
+	A -> C
+	A -> D
+	A -> E
+	A -> F
+	A -> G
+	A -> H
+	A -> I
+}

@@ -1,0 +1,20 @@
+// Attack Tree
+digraph {
+	A [label="Stealing User's Data" color=red]
+	B [label="Amazon Cognito" color=lightblue]
+	C [label="Amazon S3" color=lightblue]
+	D [label=DynamoDB color=lightblue]
+	E [label="AWS Lambda" color=lightblue]
+	F [label=GameLift color=lightblue]
+	G [label=AppSync color=lightblue]
+	H [label="AWS Analytics" color=lightblue]
+	I [label="Amazon Pinpoint" color=lightblue]
+	A -> B [label="Intercept login/registration data"]
+	A -> C [label="Intercept game assets"]
+	A -> D [label="Manipulate game state data"]
+	A -> E [label="Exploit Lambda functions"]
+	A -> F [label="Attack multiplayer events"]
+	A -> G [label="Intercept offline plays data"]
+	A -> H [label="Access user behavior data"]
+	A -> I [label="Send malicious notifications"]
+}
