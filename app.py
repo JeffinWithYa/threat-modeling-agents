@@ -13,7 +13,9 @@ gpt4_config = {
     "temperature": 0,
     "config_list": config_list_gpt4,
     "request_timeout": 120,
-    "retry_wait_time": 88
+    "retry_wait_time": 88,
+    
+
 }
 user_proxy = autogen.UserProxyAgent(
    name="Admin",

@@ -1,0 +1,39 @@
+img(style="width:400px; display:block; margin:0 auto;" src="file:///{{ hostile_vetrts_logo.png }}")
+
+#sidebar: p This document was created in part with GPT4, OpenAI's large-scale language-generation model. The accuracy of the content is not guaranteed.
+
+h1 {{ STRIDE_Threats_and_Mitigations }}
+
+.ui.piled.segment: p.
+  What you are looking at is a PDF report made with a library called
+  #[a(href='https://github.com/Edinburgh-Genome-Foundry/pdf_reports') PDF reports]
+  This library uses the GPT4 OpenAI model to create a STRIDE threat modeling report from 
+  an app architecture. The report is generated in Pug, a language that compiles to HTML.
+
+:markdown
+  Executive Summary:
+  
+  {{ executive_summary }}
+
+  
+.ui.container
+  .ui.icon.message.yellow.block-center
+    i.exclamation.circle.icon
+    .content
+      .header {{ important_message_header }}
+      p.
+        {{ important_message_body }}
+
+:markdown
+  ##  Results
+  
+  {{ results_intro }}
+
+table.ui.celled.table
+  thead
+    tr
+      th Component
+      th Threats
+      th Mitigations
+  tbody
+    {{ table_rows }}

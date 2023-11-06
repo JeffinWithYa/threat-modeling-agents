@@ -1,0 +1,29 @@
+img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///{{hostile_vetrts_logo }}")
+#sidebar
+
+.ui.stacked.segment.inverted.grey: p.
+  This is an auto-generated Threat Modeling Report, assembled by GPT-4 Threat Modeling Agents. 
+  The system reviews the specified application architecture. 
+  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats, but may still contain errors.
+  
+.ui.container
+  .ui.icon.message.blue.block-center
+    i.exclamation.circle.icon
+    .content
+      .header {{ important_message_header }}
+      p.
+        {{ important_message_body }}
+
+:markdown
+  ##  Results
+  
+  {{ results_intro }}
+
+table.ui.celled.table
+  thead
+    tr
+      th Component
+      th Threats
+      th Mitigations
+  tbody
+    {{ table_rows }}
