@@ -16,7 +16,6 @@ important_message_header = "Executive Summary"
 # Pass the variables to the Pug template
 html = pug_to_html("template.pug", 
                    hostile_vetrts_logo=hostile_vetrts_logo,
-                   STRIDE_Threats_and_Mitigations=STRIDE_Threats_and_Mitigations,
                    important_message_body=important_message_body,
                    important_message_header=important_message_header)
 
