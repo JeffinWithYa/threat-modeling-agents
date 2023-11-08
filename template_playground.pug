@@ -1,0 +1,86 @@
+img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///Users/jeffreyjeyachandren/Desktop/threat-modeling-agents/threat-modeling-agents/threat_agents_team.svg")
+#sidebar
+
+.ui.stacked.segment.inverted.grey: p.
+  This is an auto-generated Threat Modeling Report, assembled by GPT-4 Threat Modeling Agents. 
+  The system reviews the specified application architecture. 
+  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats.
+  LLMs can make mistakes. Please review the report carefully.
+  
+.ui.container
+  .ui.icon.message.blue.block-center
+    i.exclamation.circle.icon
+    .content
+      .header Executive Summary
+      p.
+        {{ important_message_body }}
+
+:markdown
+  ##  Results
+  
+table.ui.celled.table
+  thead
+    tr
+      th Component
+      th Threats
+      th Mitigations
+  tbody
+    tr
+      td User Authentication
+      td Spoofing
+      td Implement MFA, Regular security audits
+
+    tr
+      td User Authentication
+      td Tampering
+      td Use secure and up-to-date protocols
+
+    tr
+      td Asset Fetching from S3
+      td Information Disclosure
+      td Encrypt data in transit
+
+    tr
+      td Game State in DynamoDB
+      td Tampering
+      td Use of NoSQL injection prevention
+
+    tr
+      td Game State in DynamoDB
+      td Information Disclosure
+      td Encryption at rest and in transit
+
+    tr
+      td AWS Lambda
+      td Elevation of Privilege
+      td Adhere to the principle of least privilege
+
+    tr
+      td AWS Lambda
+      td Denial of Service
+      td Set appropriate timeout and memory configurations
+
+    tr
+      td GameLift for Multiplayer
+      td Denial of Service
+      td Implement rate limiting
+
+    tr
+      td GameLift for Multiplayer
+      td Elevation of Privilege
+      td Utilize role-based access control (RBAC)
+
+    tr
+      td Offline Sync via AppSync
+      td Tampering
+      td Utilize secure synchronization protocols
+
+    tr
+      td User Analytics
+      td Information Disclosure
+      td Anonymize sensitive data
+
+    tr
+      td Pinpoint Notifications
+      td Spoofing
+      td Validate outbound communication integrity

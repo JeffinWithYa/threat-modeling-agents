@@ -1,0 +1,20 @@
+// Attack Tree
+digraph {
+	A [label="Steal Data from DynamoDB"]
+	B [label="Intercept AppSync Data"]
+	C [label="Exploit AWS Lambda"]
+	D [label="Attack Game State Update"]
+	E [label="Compromise Amazon Cognito"]
+	F [label="Sniff S3 Traffic"]
+	G [label="Exploit GameLift"]
+	H [label="Intercept AWS Analytics Data"]
+	I [label="Malicious Amazon Pinpoint Notifications"]
+	A -> B
+	A -> C
+	A -> D
+	A -> E
+	A -> F
+	A -> G
+	A -> H
+	A -> I
+}

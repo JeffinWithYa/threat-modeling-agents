@@ -4,7 +4,7 @@ config_list_gpt4 = autogen.config_list_from_json(
     "OAI_CONFIG_LIST",
     file_location=".",
     filter_dict={
-        "model": ["gpt-4"],
+        "model": ["gpt-4-1106-preview"],
     },
 )
 gpt4_config = {
@@ -18,7 +18,7 @@ gpt4_config = {
 user_proxy = autogen.UserProxyAgent(
    name="User_proxy",
    system_message="A human admin.",
-   max_consecutive_auto_reply=5,
+   max_consecutive_auto_reply=3,
    code_execution_config={"last_n_messages": 3, "work_dir": "groupchat", "use_docker": False},
    human_input_mode="NEVER",
 )
@@ -48,4 +48,4 @@ groupchat = autogen.GroupChat(agents=[user_proxy, coder, critic], messages=[], m
 manager = autogen.GroupChatManager(groupchat=groupchat, llm_config=gpt4_config)
 
 # user_proxy.initiate_chat(manager, message="download data from https://raw.githubusercontent.com/uwdata/draco/master/data/cars.csv and plot a visualization that tells us about the relationship between weight and horsepower. Save the plot to a file. Print the fields in a dataset before visualizing it.")
-user_proxy.initiate_chat(manager, message="Create a visualization of an attack tree using GraphViz, starting with stealing user's data at the top. Save the result as a PNG file. Here is the app architecture to base the attack tree off: User launches the app and logs in or registers via Amazon Cognito. Game assets required for play are fetched from Amazon S3. As the user plays, their game state (score, resources, etc.) is continuously updated in DynamoDB. Certain in-game events trigger AWS Lambda functions for processing. If users participate in multiplayer events, GameLift ensures seamless gameplay. Offline plays are synced back to DynamoDB using AppSync once the user is online. User behavior and game interactions are continuously sent to AWS Analytics for evaluation and insights. Amazon Pinpoint engages users with timely and relevant push notifications.")
+user_proxy.initiate_chat(manager, message="Create a detailed visualization of an attack tree using GraphViz, starting with stealing user's data from Dynamo DB at the top. Save the result as a PNG file. Here is the app architecture to base the attack tree off: User launches the app and logs in or registers via Amazon Cognito. Game assets required for play are fetched from Amazon S3. As the user plays, their game state (score, resources, etc.) is continuously updated in DynamoDB. Certain in-game events trigger AWS Lambda functions for processing. If users participate in multiplayer events, GameLift ensures seamless gameplay. Offline plays are synced back to DynamoDB using AppSync once the user is online. User behavior and game interactions are continuously sent to AWS Analytics for evaluation and insights. Amazon Pinpoint engages users with timely and relevant push notifications.")
