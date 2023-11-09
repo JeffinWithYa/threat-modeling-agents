@@ -51,6 +51,9 @@ table.ui.celled.table
   tbody
       {{ table_rows }}"""
 
+
+
+
 html = pug_to_html(string=pug_string, 
                    hostile_vetrts_logo=hostile_vetrts_logo,
                    important_message_body=important_message_body,
