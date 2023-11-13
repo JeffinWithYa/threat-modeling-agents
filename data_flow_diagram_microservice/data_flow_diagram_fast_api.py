@@ -5,9 +5,10 @@ import os
 import subprocess
 import autogen
 
+
+
 config_list = autogen.config_list_from_json(
-    "OAI_CONFIG_LIST",
-    file_location=".",
+    env_or_file="OAI_CONFIG_LIST",
     filter_dict={
         "model": ["gpt-4-1106-preview"],
     },
@@ -36,9 +37,9 @@ llm_config = {
 }
 chatbot = autogen.AssistantAgent(
     name="chatbot",
-    system_message="""Using only the functions available to you, you create data flow diagrams by writing a pytm script to a file and outputting the data flow diagram. The pytm script is being injected into a template, so do not write any imports, with statements, or a main function. Here is an example pytm script that you should base your output off of. Note that it first defines the app components, and then how data flows between them: 
+    system_message="""Using only the functions available to you, you create data flow diagrams by writing a pytm script to a file and outputting the data flow diagram. The pytm script is being injected into a template, so do not write any imports, with statements, or a main function. Here is an example pytm script that you should base your output off of. Note that it first defines the app components, and then how data flows between them. You should only pass 3 arguments to DataFlow().: 
     tm = TM("Game App Data Flow")
-tm.description = "Threat model for a game application architecture with AWS services."
+tm.description = "Threat model for an application architecture with various services."
 tm.isOrdered = True
 tm.mergeResponses = True
 
@@ -55,12 +56,6 @@ cognito.inBoundary = aws_cloud
 s3 = Datastore("Amazon S3")
 s3.inBoundary = aws_cloud
 
-dynamodb = Datastore("DynamoDB")
-dynamodb.inBoundary = aws_cloud
-
-lambda_function = Lambda("AWS Lambda")
-lambda_function.inBoundary = aws_cloud
-
 gamelift = ExternalEntity("Amazon GameLift")
 gamelift.inBoundary = aws_cloud
 
@@ -76,21 +71,10 @@ pinpoint.inBoundary = aws_cloud
 # Data definitions
 game_assets = Data("Game Assets")
 game_state = Data("Game State")
-in_game_event = Data("In-game Event")
-multiplayer_data = Data("Multiplayer Data")
-offline_play = Data("Offline Play Data")
-user_behavior = Data("User Behavior Data")
-push_notification = Data("Push Notification")
 
 # Dataflows
 user_to_cognito = Dataflow(user, cognito, "User Authentication")
 user_to_s3 = Dataflow(user, s3, "Fetch Game Assets")
-user_to_dynamodb = Dataflow(user, dynamodb, "Update Game State")
-user_to_lambda = Dataflow(user, lambda_function, "Trigger Lambda with Event")
-user_to_gamelift = Dataflow(user, gamelift, "Participate in Multiplayer")
-user_to_appsync = Dataflow(user, appsync, "Sync Offline Plays")
-user_to_analytics = Dataflow(user, analytics, "Send Behavior Data")
-user_to_pinpoint = Dataflow(user, pinpoint, "Receive Push Notifications") 
 
 Reply 'TERMINATE' when done.    
     """,
@@ -137,7 +121,7 @@ if __name__ == "__main__":
         with open("pytm_script.py", 'w') as file:
             file.write(formatted_template)
 
-    print("File written successfully")
+    print("pytm File written successfully")
     exec_sh("sh")
     
 
