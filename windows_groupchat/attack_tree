@@ -1,0 +1,52 @@
+// Attack Tree
+digraph {
+	A [label="Stealing user's data"]
+	B [label="Attack Amazon Cognito"]
+	C [label="Attack Amazon S3"]
+	D [label="Attack DynamoDB"]
+	E [label="Attack AWS Lambda"]
+	F [label="Attack GameLift"]
+	G [label="Attack AppSync"]
+	H [label="Attack AWS Analytics"]
+	I [label="Attack Amazon Pinpoint"]
+	A -> B
+	A -> C
+	A -> D
+	A -> E
+	A -> F
+	A -> G
+	A -> H
+	A -> I
+	J [label="Brute force attack"]
+	K [label="Phishing attack"]
+	B -> J
+	B -> K
+	L [label="Exploit S3 misconfigurations"]
+	M [label="Man-in-the-middle attack"]
+	C -> L
+	C -> M
+	N [label="SQL injection"]
+	O [label="Exploit misconfigurations"]
+	D -> N
+	D -> O
+	P [label="Exploit misconfigurations"]
+	Q [label="Code injection"]
+	E -> P
+	E -> Q
+	R [label="DDoS attack"]
+	S [label="Exploit misconfigurations"]
+	F -> R
+	F -> S
+	T [label="Man-in-the-middle attack"]
+	U [label="Exploit misconfigurations"]
+	G -> T
+	G -> U
+	V [label="Data tampering"]
+	W [label="Exploit misconfigurations"]
+	H -> V
+	H -> W
+	X [label="Spoofing attack"]
+	Y [label="Exploit misconfigurations"]
+	I -> X
+	I -> Y
+}
