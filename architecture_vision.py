@@ -12,7 +12,7 @@ config_list = autogen.config_list_from_json(
 )
 llm_config = {
     "config_list": config_list,
-    "seed": 69,  # change the seed for different trials
+    "seed": 33,  # change the seed for different trials
 
 }
 
@@ -20,7 +20,7 @@ llm_config = {
 
 chatbot = MultimodalConversableAgent(
     name="chatbot",
-    system_message="After the thread modeling exercise is complete, add the executive summary, table, and long-form write-up to the report. Only use the functions you have been provided with. Make sure the executive summary starts with 'Executive Summary:'. The sumary should identify the top 3 priorities, and be no more than 220 words. The details should be a list of lists of the form '[[component, threat, mitigation], [component, threat, mitigation], ...] Reply TERMINATE when the task is done.",
+    system_message="Do a thread modeling exercise is complete, add the executive summary, table, and long-form write-up to the report. Only use the functions you have been provided with. Make sure the executive summary starts with 'Executive Summary:'. The sumary should identify the top 3 priorities, and be no more than 220 words. The details should be a list of lists of the form '[[component, threat, mitigation], [component, threat, mitigation], ...] Reply TERMINATE when the task is done.",
     llm_config=llm_config,
 )
 

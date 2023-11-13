@@ -15,8 +15,8 @@ from pytm import (
     DatastoreType,
 )
 
-tm = TM("Web Application Data Flow")
-tm.description = "Threat model for a web application architecture with AWS services."
+tm = TM("Game App Data Flow")
+tm.description = "Threat model for a game application architecture with AWS services."
 tm.isOrdered = True
 tm.mergeResponses = True
 
@@ -27,48 +27,48 @@ aws_cloud = Boundary("AWS Cloud")
 user = Actor("User")
 user.inBoundary = internet
 
-route53 = ExternalEntity("Amazon Route 53")
-route53.inBoundary = aws_cloud
+cognito = ExternalEntity("Amazon Cognito")
+cognito.inBoundary = aws_cloud
 
-elb = Process("Elastic Load Balancer")
-elb.inBoundary = aws_cloud
+s3 = Datastore("Amazon S3")
+s3.inBoundary = aws_cloud
 
-ec2_instances = Process("EC2 Instances")
-ec2_instances.inBoundary = aws_cloud
-
-elastic_beanstalk = Process("AWS Elastic Beanstalk")
-elastic_beanstalk.inBoundary = aws_cloud
-
-rds = Datastore("Amazon RDS")
-rds.inBoundary = aws_cloud
-
-dynamodb = Datastore("Amazon DynamoDB")
+dynamodb = Datastore("DynamoDB")
 dynamodb.inBoundary = aws_cloud
 
 lambda_function = Lambda("AWS Lambda")
 lambda_function.inBoundary = aws_cloud
 
-s3 = Datastore("Amazon S3")
-s3.inBoundary = aws_cloud
+gamelift = ExternalEntity("Amazon GameLift")
+gamelift.inBoundary = aws_cloud
 
-elasticache = Datastore("Amazon ElastiCache")
-elasticache.inBoundary = aws_cloud
+appsync = Process("AWS AppSync")
+appsync.inBoundary = aws_cloud
+
+analytics = Process("AWS Analytics")
+analytics.inBoundary = aws_cloud
+
+pinpoint = ExternalEntity("Amazon Pinpoint")
+pinpoint.inBoundary = aws_cloud
 
 # Data definitions
-http_request = Data("HTTP Request")
-processed_data = Data("Processed Data")
-json_response = Data("JSON Response")
+game_assets = Data("Game Assets")
+game_state = Data("Game State")
+in_game_event = Data("In-game Event")
+multiplayer_data = Data("Multiplayer Data")
+offline_play = Data("Offline Play Data")
+user_behavior = Data("User Behavior Data")
+push_notification = Data("Push Notification")
 
 # Dataflows
-user_to_route53 = Dataflow(user, route53, "Send HTTP Request")
-route53_to_elb = Dataflow(route53, elb, "Route to ELB")
-elb_to_ec2 = Dataflow(elb, ec2_instances, "Direct to Appropriate EC2")
-ec2_to_rds = Dataflow(ec2_instances, rds, "Query RDS Database")
-ec2_to_dynamodb = Dataflow(ec2_instances, dynamodb, "Query DynamoDB Table")
-ec2_to_lambda = Dataflow(ec2_instances, lambda_function, "Trigger Lambda Function")
-ec2_to_s3 = Dataflow(ec2_instances, s3, "Interact with S3 Storage")
-ec2_to_elasticache = Dataflow(ec2_instances, elasticache, "Access ElastiCache")
-ec2_to_user = Dataflow(ec2_instances, user, "Send Response to User")
+user_to_cognito = Dataflow(user, cognito, "User Authentication")
+user_to_s3 = Dataflow(user, s3, "Fetch Game Assets")
+user_to_dynamodb = Dataflow(user, dynamodb, "Update Game State")
+user_to_lambda = Dataflow(user, lambda_function, "Trigger Lambda with Event")
+user_to_gamelift = Dataflow(user, gamelift, "Participate in Multiplayer")
+user_to_appsync = Dataflow(user, appsync, "Sync Offline Plays")
+user_to_analytics = Dataflow(user, analytics, "Send Behavior Data")
+user_to_pinpoint = Dataflow(user, pinpoint, "Receive Push Notifications")
 
 if __name__ == "__main__":
     tm.process()
