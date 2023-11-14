@@ -1,6 +1,11 @@
+from fastapi import FastAPI, HTTPException, Response, status
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 import autogen
 from pdf_reports import pug_to_html, write_report
 import ast
+import os
+
 
 config_list = autogen.config_list_from_json(
     env_or_file="OAI_CONFIG_LIST",
@@ -8,11 +13,12 @@ config_list = autogen.config_list_from_json(
         "model": ["gpt-4-1106-preview"],
     },
 )
+
 llm_config = {
     "functions": [
         {
             "name": "python",
-            "description": "Adds the executive summary to the report.",
+            "description": "Adds the executive summary, details, and longform to the report.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -34,8 +40,7 @@ llm_config = {
         },
     ],
     "config_list": config_list,
-    "request_timeout": 120,
-    "seed": 69,  # change the seed for different trials
+    "seed": 77,  # change the seed for different trials
 
 }
 chatbot = autogen.AssistantAgent(
@@ -148,9 +153,40 @@ user_proxy.register_function(
         }
 )
 
-# start the conversation
-user_proxy.initiate_chat(
-    chatbot,
-    message="Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: User launches the app and logs in or registers via Amazon Cognito. Game assets required for play are fetched from Amazon S3. As the user plays, their game state (score, resources, etc.) is continuously updated in DynamoDB. Certain in-game events trigger AWS Lambda functions for processing. If users participate in multiplayer events, GameLift ensures seamless gameplay. Offline plays are synced back to DynamoDB using AppSync once the user is online. User behavior and game interactions are continuously sent to AWS Analytics for evaluation and insights. Amazon Pinpoint engages users with timely and relevant push notifications.",
-)
+# Define your Pydantic model for request validation
+class PdfRequest(BaseModel):
+    description: str
+
+# Create a FastAPI instance
+app = FastAPI()
+
+# Other configurations and function definitions remain the same...
+
+@app.get('/')
+def hello():
+    return {"message": "Hello World!"}
+
+
+@app.post('/generate-stride-report-pdf')
+async def generate_diagram(request: PdfRequest):
+    try:
+        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description
+
+        # Start the conversation with the user proxy
+        user_proxy.initiate_chat(
+            chatbot,
+            message=message
+        )
+
+        pdf_path = 'stride_report.pdf'
+
+        if os.path.exists(pdf_path):
+            return FileResponse(pdf_path, media_type='application/pdf')
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
