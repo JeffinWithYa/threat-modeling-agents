@@ -1,0 +1,4 @@
+pyautogen==0.2.0b3
+fastapi==0.104.1
+uvicorn==0.24.0.post1
+graphviz==0.20.1
