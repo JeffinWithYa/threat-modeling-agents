@@ -66,10 +66,82 @@ def is_termination_msg(content) -> bool:
         #print("\n\nGROUPCHAT MESSAGES", group_chat.messages)
         results = parse_report_details(group_chat.messages)
         print("\n\nRESULTS", results)
+        exec_python(results)
 
 
         return True
     return False
+
+def generate_pug_table_rows(details):
+    rows = []
+    for role, messages in details.items():
+        # Assuming messages are stored in a list, and the last message is the most recent
+        last_message = messages[-1] if messages else "No messages"
+        row = f"<tr><td>{role}</td><td>{last_message}</td></tr>"
+        rows.append(row)
+    return "\n".join(rows)
+
+def exec_python(results):
+
+    # Assuming 'Team A Leader' and 'Team B Leader' are the team leaders
+    team_leader_A_last_message = results.get("Team A Leader", [""])[-1]
+    team_leader_B_last_message = results.get("Team B Leader", [""])[-1] 
+
+    pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
+#sidebar
+
+.ui.stacked.segment.inverted.grey: p.
+  This is an auto-generated Threat Modeling Report, assembled by GPT-4 Threat Modeling Agents. 
+  The system reviews the specified application architecture. 
+  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats, but may still contain errors.
+  
+.ui.container
+  .ui.icon.message.blue.block-center
+    i.exclamation.circle.icon
+    .content
+      .header Executive Summary
+      p.
+        {{ important_message_body }}
+
+
+    :markdown
+      ## Results
+    table.ui.celled.table
+      thead
+        tr
+          th Role
+          th Last Message
+      tbody
+        {{ table_rows }}
+
+    :markdown
+      ## Appendix
+      ### Team Leaders Weigh In
+      p.
+        {{ team_leader_last_message }}
+
+    """
+
+    s = cell.strip('"\'')
+    while s.startswith('#'):
+        s = s[1:].strip()
+    
+    exec_summ_prefix = 'Executive Summary:'
+    if s.startswith(exec_summ_prefix):
+        s = s[len(exec_summ_prefix):].strip()
+
+    important_message_body = s
+    table_rows = generate_pug_table_rows(details)
+    pug_with_table = pug_template_string.replace("{{ table_rows }}", table_rows).replace("{{ team_leader_last_message }}", team_leader_last_message)
+
+    html = pug_to_html(string=pug_with_table, 
+                       important_message_body=important_message_body,
+                       longform=longform)
+
+    # Generate the report
+    write_report(html, "stride_report.pdf")
+    return "Report generated successfully"
+
 
 def parse_report_details(messages):
     stakeholders = {
@@ -102,7 +174,7 @@ def parse_report_details(messages):
 # Initialization
 agents_A = [
     AssistantAgent(name='A1', 
-                   system_message="You are a team leader A1, your team consists of A2 (engineer), A3 (architect). You can talk to the other team leader B1, whose team members are B2 (compliance officer) and B3 (business stakeholder).",
+                   system_message="You are a team leader A1, your team consists of A2 (engineer), A3 (architect). You can talk to the other team leader B1, whose team members are B2 (compliance officer) and B3 (business stakeholder). Make sure your team members give their analysis of the report results.",
                    llm_config=llm_config),
     AssistantAgent(name='A2', 
                    system_message="You are team member A2 (engineer). To cooperate, you tell others the potential coding pitfalls in the app architecture that might lead to vulnerabilities and suggest possible solutions. After reviewing the STRIDE and DREAD results of the app architecture, you provide a formalized analysis of the report results which is related to implementation details and mitigation strategies based on coding best practices. You must start your write-up for the report with 'Engineering Discussion:'.",
@@ -114,7 +186,7 @@ agents_A = [
 
 agents_B = [
     AssistantAgent(name='B1', 
-                   system_message="You are a team leader B1. Your team consists of B2 (compliance_officer), business_stakeholder, and facilitator. You can talk to the other team leader technical1, whose team members are engineer and architect. Use NEXT: A1 to suggest talking to technical1.",
+                   system_message="You are a team leader B1. Your team consists of B2 (compliance_officer), B3 (business_stakeholder), and B4 (Threat Modeler). You can talk to the other team leader A1, whose team members are A2 (engineer) and A3 (architect). Use NEXT: A1 to suggest talking to A1. You should suggest that B4 (Threat Modeler) start the analysis.",
                    llm_config=llm_config),
     AssistantAgent(name='B2', 
                    system_message="You are team member B2 (compliance_officer). To cooperate, you tell others whether the identified threats and their mitigation would put the organization at risk of non-compliance. After reviewing the STRIDE and DREAD results of the app architecture, you provide a formalized analysis of the report results which is related to how the threats and mitigations align with compliance standards and regulations. You must start your write-up for the report with 'Compliance Officer Discussion:'.",
@@ -141,7 +213,7 @@ list_of_agents.append(user_proxy)
 # Create CustomGroupChat
 group_chat = CustomGroupChat(
     agents=list_of_agents,  # Include all agents
-    messages=['Everyone cooperates and help B4 in their task. Team A has A1, A2 (engineer), A3 (architect). Team B has B1, B2 (compliance officer), and B3 (business stakeholder, adn B4. Only members of the same team can talk to one another. Only team leaders (names ending with 1) can talk amongst themselves. You must use "NEXT: B1" to suggest talking to B1 for example; You can suggest only one person, you cannot suggest yourself or the previous speaker; You can also dont suggest anyone.'],
+    messages=['Everyone cooperates and help B4 in their task. Team A has A1, A2 (engineer), A3 (architect). Team B has B1, B2 (compliance officer), and B3 (business stakeholder), and B4. Only members of the same team can talk to one another. Only team leaders (names ending with 1) can talk amongst themselves. You must use "NEXT: B1" to suggest talking to B1 for example; You can suggest only one person, you cannot suggest yourself or the previous speaker; You can also dont suggest anyone.'],
     max_round=30
 )
 
@@ -154,4 +226,4 @@ manager = autogen.GroupChatManager(groupchat=group_chat, llm_config=llm_config)
 app_architecture = "The application architecture is a web application with a database. The web application is written in Python and uses the Flask framework. The database is a MySQL database. The web application is hosted on AWS EC2. The web application is a simple blog application that allows users to create posts and comment on posts. The web application uses a MySQL database to store the posts and comments. The web application uses the Flask framework to handle requests and responses. The web application uses the Jinja2 templating engine to render HTML templates. The web application uses the WTForms library to handle forms. The web application uses the Flask-Login library to handle user authentication. The web application uses the Flask-WTF library to handle forms. The web application uses the Flask-Bootstrap library to handle forms. The web application uses the Flask-Admin library to handle forms. The web application uses the Flask-RESTful library to handle forms."
 message = "Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. Detailed feedback must be provided from the perspective of the engineer, architect, business stakeholder, and compliance officer. App architecture: " + app_architecture
 # Initiates the chat with B2
-agents_B[3].initiate_chat(manager, message=message)
+agents_B[0].initiate_chat(manager, message=message)
