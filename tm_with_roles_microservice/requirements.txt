@@ -1,0 +1,6 @@
+pyautogen==0.2.0b3
+fastapi==0.104.1
+uvicorn==0.24.0.post1
+pdf-reports==0.3.5
+weasyprint==60.1
+matplotlib==3.8.1

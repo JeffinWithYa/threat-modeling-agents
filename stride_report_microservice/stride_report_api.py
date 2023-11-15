@@ -45,7 +45,7 @@ llm_config = {
 }
 chatbot = autogen.AssistantAgent(
     name="chatbot",
-    system_message="After the thread modeling exercise is complete, add the executive summary, table, and long-form write-up to the report. Only use the functions you have been provided with. Make sure the executive summary starts with 'Executive Summary:'. The sumary should identify the top 3 priorities, and be no more than 220 words. The details should be a list of lists of the form '[[component, threat, mitigation], [component, threat, mitigation], ...] Reply TERMINATE when the task is done.",
+    system_message="After the thread modeling exercise is complete, add the executive summary, table, and long-form write-up to the report. Only use the functions you have been provided with. Make sure the executive summary starts with 'Executive Summary:'. The summary should identify the top 3 priorities, and be no more than 220 words. The details should be a list of lists of the form '[[component, threat, mitigation], [component, threat, mitigation], ...] . The function will return 'Report generated successfully' if the pdf is successfully created. Reply TERMINATE when the task is done.",
     llm_config=llm_config,
 )
 
@@ -63,7 +63,7 @@ user_proxy = autogen.UserProxyAgent(
 def exec_python(cell, details, longform):
     print(longform)
 
-    pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///Users/jeffreyjeyachandren/Desktop/threat-modeling-agents/threat-modeling-agents/threat_agents_team.svg")
+    pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
 #sidebar
 
 .ui.stacked.segment.inverted.grey: p.
@@ -124,6 +124,7 @@ table.ui.celled.table
 
     # Generate the report
     write_report(html, "stride_report.pdf")
+    return "Report generated successfully"
 
 def generate_pug_table_rows(data):
     pug_rows = []

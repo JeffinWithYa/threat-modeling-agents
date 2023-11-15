@@ -42,13 +42,12 @@ llm_config = {
         },
     ],
     "config_list": config_list,
-    "request_timeout": 120,
     "seed": 79,  # change the seed for different trials
 
 }
 chatbot = autogen.AssistantAgent(
     name="chatbot",
-    system_message="""Using only the functions available to you, you create data flow diagrams by first creating a pytm script, and then call 'sh' with 'hello' to output the PNG. The pytm script is being injected into a template, so do not write any imports, with statements, or a main function. Here is an example pytm script that you should base your output off of. Note that it first defines the app components, and then how data flows between them: 
+    system_message="""Using only the functions available to you, you create attack diagrams by first creating a pytm script, and then call 'sh' with 'hello' to output the PNG. The pytm script is being injected into a template, so do not write any imports, with statements, or a main function. Here is an example pytm script that you should base your output off of. Note that it first defines the app components, and then how data flows between them, but you are repurposing as an attack tree diagram. You should only pass 3 arguments to DataFlow().: 
     tm = TM("Game App Data Flow")
 tm.description = "Threat model for a game application architecture with AWS services."
 tm.isOrdered = True
@@ -123,37 +122,19 @@ user_proxy = autogen.UserProxyAgent(
 def exec_python(cell):
     
     pytm_template = """
-#!/usr/bin/env python
-from pytm import (
-    TM,
-    Actor,
-    Boundary,
-    Classification,
-    Data,
-    Dataflow,
-    Datastore,
-    Lambda,
-    Server,
-    ExternalEntity,
-    Process,
-    DatastoreType,
-)
-
 {}
-
-if __name__ == "__main__":
-    tm.process()
     """
-    with open('pytm_script.py', 'w') as file:
+    with open('attack_tree_out.py', 'w') as file:
         formatted_template = pytm_template.format(cell)
-        with open("pytm_script.py", 'w') as file:
+        with open("attack_tree_out.py", 'w') as file:
             file.write(formatted_template)
     
-
+    print("pytm File written successfully")
+    exec_sh("sh")
 
 def exec_sh(script):
     # The command you want to execute
-    command = "python3 pytm_script.py --dfd | dot -Tpng -o tm/dfd.png"
+    command = "python3 attack_tree_out.py"
     
     # Execute the command
     process = subprocess.Popen(
@@ -182,6 +163,6 @@ user_proxy.register_function(
 # start the conversation
 user_proxy.initiate_chat(
     chatbot,
-    message="Create a data flow diagram for the following app architecture: In a web application hosted on AWS, the data flow typically begins with the user's interaction with the front-end, which triggers an HTTP request. This request is routed through Amazon Route 53 to an Elastic Load Balancer, which then directs the traffic to the appropriate EC2 instances where the application is hosted. The application code, possibly running on an AWS Elastic Beanstalk environment, processes the request, which may include querying an Amazon RDS database or an Amazon DynamoDB table to retrieve or store data. AWS Lambda functions could also be utilized for serverless computation. The application may interact with additional AWS services like S3 for object storage, or use Amazon ElastiCache to access frequently requested data quickly. Once the server-side processing is complete, the data is formatted (often as JSON) and sent back through the Internet to the user's browser, where it is rendered, and any dynamic client-side actions are handled by JavaScript. This architecture benefits from the scalability, reliability, and security provided by AWS.",
+    message="Create an attack tree diagram for the following app architecture, with stealing user data at the top: In a web application hosted on AWS, the data flow typically begins with the user's interaction with the front-end, which triggers an HTTP request. This request is routed through Amazon Route 53 to an Elastic Load Balancer, which then directs the traffic to the appropriate EC2 instances where the application is hosted. The application code, possibly running on an AWS Elastic Beanstalk environment, processes the request, which may include querying an Amazon RDS database or an Amazon DynamoDB table to retrieve or store data. AWS Lambda functions could also be utilized for serverless computation. The application may interact with additional AWS services like S3 for object storage, or use Amazon ElastiCache to access frequently requested data quickly. Once the server-side processing is complete, the data is formatted (often as JSON) and sent back through the Internet to the user's browser, where it is rendered, and any dynamic client-side actions are handled by JavaScript. This architecture benefits from the scalability, reliability, and security provided by AWS.",
 )
 

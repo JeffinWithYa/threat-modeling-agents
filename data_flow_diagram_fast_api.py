@@ -5,9 +5,8 @@ import os
 import subprocess
 import autogen
 
-config_list = autogen.config_list_from_json(
-    "OAI_CONFIG_LIST",
-    file_location=".",
+config_list = config_list_from_dotenv(
+    model_api_key_map={"gpt-4-1106-preview":os.environ.get("GPT4_1106_API_KEY")}
     filter_dict={
         "model": ["gpt-4-1106-preview"],
     },

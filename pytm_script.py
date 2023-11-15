@@ -1,75 +1,41 @@
+from pytm import TM, Server, Dataflow, Boundary, Actor, Lambda
 
-#!/usr/bin/env python
-from pytm import (
-    TM,
-    Actor,
-    Boundary,
-    Classification,
-    Data,
-    Dataflow,
-    Datastore,
-    Lambda,
-    Server,
-    ExternalEntity,
-    Process,
-    DatastoreType,
-)
-
-tm = TM("Game App Data Flow")
-tm.description = "Threat model for a game application architecture with AWS services."
-tm.isOrdered = True
-tm.mergeResponses = True
-
-internet = Boundary("Internet")
-
-aws_cloud = Boundary("AWS Cloud")
+tm = TM("Web Application Attack Tree")
+tm.description = "Attack tree modeling for a web application hosted on AWS."
 
 user = Actor("User")
-user.inBoundary = internet
-
-cognito = ExternalEntity("Amazon Cognito")
-cognito.inBoundary = aws_cloud
-
-s3 = Datastore("Amazon S3")
-s3.inBoundary = aws_cloud
-
-dynamodb = Datastore("DynamoDB")
-dynamodb.inBoundary = aws_cloud
-
+web_frontend = Server("Web Frontend")
+aws_route53 = Server("AWS Route 53")
+load_balancer = Server("Elastic Load Balancer")
+ec2_instance = Server("EC2 Instance")
+elastic_beanstalk = Server("AWS Elastic Beanstalk")
+rds = Server("Amazon RDS")
+dynamodb = Server("Amazon DynamoDB")
 lambda_function = Lambda("AWS Lambda")
-lambda_function.inBoundary = aws_cloud
+s3 = Server("Amazon S3")
+elasticache = Server("Amazon ElastiCache")
+internet = Boundary("Internet")
+aws_network = Boundary("AWS Network")
 
-gamelift = ExternalEntity("Amazon GameLift")
-gamelift.inBoundary = aws_cloud
+# Defining data flows
+user_to_frontend = Dataflow(user, web_frontend, "HTTP Request")
+frontend_to_route53 = Dataflow(web_frontend, aws_route53, "DNS Query")
+route53_to_elb = Dataflow(aws_route53, load_balancer, "Route to ELB")
+elb_to_ec2 = Dataflow(load_balancer, ec2_instance, "Load Balanced Traffic")
+ec2_to_rds = Dataflow(ec2_instance, rds, "DB Query")
+ec2_to_dynamodb = Dataflow(ec2_instance, dynamodb, "DB Query")
+ec2_to_lambda = Dataflow(ec2_instance, lambda_function, "Trigger Lambda")
+ec2_to_s3 = Dataflow(ec2_instance, s3, "S3 Object Access")
+ec2_to_elasticache = Dataflow(ec2_instance, elasticache, "Cache Access")
+response_to_user = Dataflow(ec2_instance, user, "HTTP Response")
 
-appsync = Process("AWS AppSync")
-appsync.inBoundary = aws_cloud
+# Setting trust boundaries
+#internet.add_flow(user_to_frontend, response_to_user)
+#aws_network.add_flow(frontend_to_route53, route53_to_elb, elb_to_ec2, ec2_to_rds, ec2_to_dynamodb, ec2_to_lambda, ec2_to_s3, ec2_to_elasticache)
 
-analytics = Process("AWS Analytics")
-analytics.inBoundary = aws_cloud
-
-pinpoint = ExternalEntity("Amazon Pinpoint")
-pinpoint.inBoundary = aws_cloud
-
-# Data definitions
-game_assets = Data("Game Assets")
-game_state = Data("Game State")
-in_game_event = Data("In-game Event")
-multiplayer_data = Data("Multiplayer Data")
-offline_play = Data("Offline Play Data")
-user_behavior = Data("User Behavior Data")
-push_notification = Data("Push Notification")
-
-# Dataflows
-user_to_cognito = Dataflow(user, cognito, "User Authentication")
-user_to_s3 = Dataflow(user, s3, "Fetch Game Assets")
-user_to_dynamodb = Dataflow(user, dynamodb, "Update Game State")
-user_to_lambda = Dataflow(user, lambda_function, "Trigger Lambda with Event")
-user_to_gamelift = Dataflow(user, gamelift, "Participate in Multiplayer")
-user_to_appsync = Dataflow(user, appsync, "Sync Offline Plays")
-user_to_analytics = Dataflow(user, analytics, "Send Behavior Data")
-user_to_pinpoint = Dataflow(user, pinpoint, "Receive Push Notifications")
+# Define attack tree
+#steal_user_data = Threat("Steal User Data")
+# Add branches to the attack tree here...
 
 if __name__ == "__main__":
     tm.process()
-    
