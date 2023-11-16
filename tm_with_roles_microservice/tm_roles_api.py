@@ -92,6 +92,26 @@ class CustomGroupChat(GroupChat):
         else:
             return None
 
+def calculate_cost(conversation_log):
+    conversation_log = conversation_log[1:]
+    input_cost_per_1000 = 0.01
+    output_cost_per_1000 = 0.03
+
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_characters = 0
+
+    for log in conversation_log:
+        content = log["content"]
+        total_characters += len(content)
+        total_input_tokens += len(content) // 4
+        total_output_tokens = total_characters // 4
+
+    total_input = (total_input_tokens * input_cost_per_1000)/1000
+    total_output = (total_output_tokens * output_cost_per_1000)/1000
+    total_cost = (total_input_tokens * input_cost_per_1000 / 1000) + (total_output_tokens * output_cost_per_1000 / 1000)
+    return total_cost, total_input, total_output
+
 # Termination message detection
 def is_termination_msg(content) -> bool:
     have_content = content.get("content", None) is not None
@@ -134,6 +154,11 @@ def generate_pug_table_rows(data):
     return "\n".join(pug_rows)
 
 def exec_python(results, prompt):
+    # autogen.ChatCompletion.print_usage_summary()
+    total_cost, total_input, total_output = calculate_cost(group_chat.messages)
+
+
+
     agent_discussion = ""
     with open("conversation.log", "r") as f:
         agent_discussion = f.read()
@@ -184,6 +209,10 @@ table.ui.celled.table
 
 :markdown
     ## Appendix
+    ### Usage Costs
+        #### Total Cost: ${{ total_cost }} USD
+        #### Input Tokens Cost: ${{ total_input }} USD
+        #### Output Tokens Cost: ${{ total_output }} USD
     ### Conversation Log
       {{ agent_discussion }}
     
@@ -217,11 +246,14 @@ Prioritization of Actions: The team has collectively prioritized the proposed ac
 
 
 
-    print("\n\npug with table\n\n", pug_with_discussion)
+    #print("\n\npug with table\n\n", pug_with_discussion)
 
     html = pug_to_html(string=pug_with_discussion, 
                        important_message_body=important_message_body,
-                       original_prompt=original_prompt)
+                       original_prompt=original_prompt,
+                       total_cost=total_cost,
+                       total_input=total_input,
+                       total_output=total_output)
 
     # Generate the report
     write_report(html, "stakeholder_report.pdf")
@@ -359,4 +391,4 @@ async def generate_diagram(request: PdfRequest):
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
-""""
+"""
