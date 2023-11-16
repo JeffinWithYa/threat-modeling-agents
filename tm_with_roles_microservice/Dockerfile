@@ -25,4 +25,4 @@ EXPOSE 80
 ENV NAME World
 
 # Run app.py when the container launches
-CMD ["uvicorn", "stride_report_api:app", "--host", "0.0.0.0", "--port", "80"]
+CMD ["uvicorn", "tm_roles_api:app", "--host", "0.0.0.0", "--port", "80"]

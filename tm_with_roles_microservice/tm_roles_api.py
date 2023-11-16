@@ -7,19 +7,20 @@ import sys
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-"""
+import os
+
+# """
 config_list = autogen.config_list_from_json(
     env_or_file="OAI_CONFIG_LIST",
     filter_dict={
         "model": ["gpt-4-1106-preview"],
     },
 )
-"""
+# """
 
-original_message = ""
 
 # for local testing
-
+"""
 config_list = autogen.config_list_from_json(
     "OAI_CONFIG_LIST",
     file_location="../",
@@ -27,6 +28,7 @@ config_list = autogen.config_list_from_json(
         "model": ["gpt-4-1106-preview"],
     },
 )
+"""
 
 class DualOutput:
     def __init__(self, filename):
@@ -154,6 +156,7 @@ def generate_pug_table_rows(data):
     return "\n".join(pug_rows)
 
 def exec_python(results, prompt):
+    # This API call currently does not support the gpt-4-1106-preview model.
     # autogen.ChatCompletion.print_usage_summary()
     total_cost, total_input, total_output = calculate_cost(group_chat.messages)
 
@@ -256,7 +259,7 @@ Prioritization of Actions: The team has collectively prioritized the proposed ac
                        total_output=total_output)
 
     # Generate the report
-    write_report(html, "stakeholder_report.pdf")
+    write_report(html, "roles_report.pdf")
     return "Report generated successfully"
 
 
@@ -346,15 +349,15 @@ app_architecture = "The application architecture is a web application with a dat
 message = "Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. App architecture: " + app_architecture
 
 # Test without FastAPI
-# """"
+"""
 sys.stdout = DualOutput('conversation.log')
 agents_B[0].initiate_chat(manager, message=message)
 sys.stdout.log.close()
 sys.stdout = sys.stdout.terminal
+"""
+
+
 # """"
-
-
-""""
 # Define your Pydantic model for request validation
 class PdfRequest(BaseModel):
     description: str
@@ -380,7 +383,7 @@ async def generate_diagram(request: PdfRequest):
         sys.stdout.log.close()
         sys.stdout = sys.stdout.terminal
 
-        pdf_path = 'stride_report.pdf'
+        pdf_path = 'roles_report.pdf'
 
         if os.path.exists(pdf_path):
             return FileResponse(pdf_path, media_type='application/pdf')
@@ -391,4 +394,4 @@ async def generate_diagram(request: PdfRequest):
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
-"""
+#"""
