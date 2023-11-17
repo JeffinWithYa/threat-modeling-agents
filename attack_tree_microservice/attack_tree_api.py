@@ -4,6 +4,43 @@ from pydantic import BaseModel
 import os
 import subprocess
 import autogen
+import sys
+import re
+from pdf_reports import pug_to_html, write_report
+
+class DualOutput:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "w")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        # This flush method is needed for compatibility with the standard output.
+        self.terminal.flush()
+        self.log.flush()
+
+def calculate_cost(conversation_log):
+    conversation_log = conversation_log[1:]
+    input_cost_per_1000 = 0.01
+    output_cost_per_1000 = 0.03
+
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_characters = 0
+
+    for log in conversation_log:
+        content = str(log)
+        total_characters += len(content)
+        total_input_tokens += len(content) // 4
+        total_output_tokens = total_characters // 4
+
+    total_input = (total_input_tokens * input_cost_per_1000)/1000
+    total_output = (total_output_tokens * output_cost_per_1000)/1000
+    total_cost = (total_input_tokens * input_cost_per_1000 / 1000) + (total_output_tokens * output_cost_per_1000 / 1000)
+    return total_cost, total_input, total_output
 
 # for local testing (no environment variables)
 """
@@ -17,13 +54,14 @@ config_list = autogen.config_list_from_json(
 """
 
 # for deployment (environment variables)
+# """
 config_list = autogen.config_list_from_json(
     env_or_file="OAI_CONFIG_LIST",
     filter_dict={
         "model": ["gpt-4-1106-preview"],
     },
 )
-
+# """
 
 llm_config = {
     "functions": [
@@ -49,13 +87,15 @@ llm_config = {
 }
 chatbot = autogen.AssistantAgent(
     name="chatbot",
-    system_message="""Using only the functions available to you, you create attack tree diagrams by writing a script to a file and outputting the data flow diagram. Make sure you call the render function with 'attack_tree' and specify 'png' for format. Here is an example script that you should base your output off of: 
+    system_message="""Using only the functions available to you, you create attack tree diagrams by writing a script to a file and outputting the data flow diagram. Make sure you call the render function with 'attack_tree' and specify 'svg' for format. Make sure the margin and pad are 0 (specified in dot.attr() function). Here is an example script that you should base your output off of: 
     # filename: attack_tree.py
 
 from graphviz import Digraph
 
 # Create a directed graph
 dot = Digraph(comment='Attack Tree')
+dot.attr('graph', margin='0', pad='0')
+
 
 # Add nodes for each potential attack vector
 dot.node('A', 'Stealing User\'s Data', color='red')
@@ -78,8 +118,8 @@ dot.edge('A', 'G', label='Intercept offline plays data')
 dot.edge('A', 'H', label='Access user behavior data')
 dot.edge('A', 'I', label='Send malicious notifications')
 
-# Save the graph as a PNG file
-dot.format = 'png'
+# Save the graph as a SVG file
+dot.format = 'svg'
 dot.render('attack_tree', view=False)
 
 Reply 'TERMINATE' when done.    
@@ -97,6 +137,14 @@ user_proxy = autogen.UserProxyAgent(
 )
 
 # define functions according to the function desription
+def extract_prompt(text):
+    pattern = r"STARTING CONVERSATION:\s*(.*?)\s*DESCRIPTION_END"
+    match = re.search(pattern, text, re.DOTALL)
+
+    if match:
+        return match.group(1).strip()
+    else:
+        return "Error printing prompt"
 
 def exec_python(cell):
     
@@ -110,6 +158,60 @@ def exec_python(cell):
     
     print("pytm File written successfully")
     exec_sh("sh")
+
+    # Create PDF
+    agent_discussion = ""
+    total_cost = 0
+    total_input = 0
+    total_output = 0
+    original_prompt = ""
+    with open("conversation.log", "r") as f:
+        agent_discussion = f.read()
+        total_cost, total_input, total_output = calculate_cost(agent_discussion)
+        original_prompt = extract_prompt(agent_discussion)
+
+    agent_discussion_pug = '\n    '.join('| ' + line for line in agent_discussion.split('\n'))
+
+    pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
+#sidebar
+
+.ui.stacked.segment.inverted.grey: p.
+  This is an auto-generated Attack Tree, assembled by GPT-4 Threat Modeling Agents. 
+  The system reviews the specified application architecture and specified attack (top node of tree), and generates an attack tree diagram using GraphViz. The result may still contain errors.
+  
+img(style="width:600px; height:600px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/attack_tree.svg")
+
+:markdown
+    ## Appendix
+
+.ui.container
+  .ui.icon.message.yellow.block-center
+    i.exclamation.circle.icon
+    .content
+      .header Original Prompt and Inputted App Architecture
+      p.
+        {{ original_prompt }}
+
+:markdown
+    ### Usage Costs
+        #### Total Cost: ${{ total_cost }} USD
+        #### Input Tokens Cost: ${{ total_input }} USD
+        #### Output Tokens Cost: ${{ total_output }} USD
+    ### Conversation Log
+      {{ agent_discussion }}
+      """
+    pug_with_discussion = pug_template_string.replace("{{ agent_discussion }}", agent_discussion_pug)
+    # Pass the variables to the Pug template
+    html = pug_to_html(string=pug_with_discussion, 
+                       original_prompt=original_prompt,
+                       total_cost=total_cost,
+                       total_input=total_input,
+                       total_output=total_output,
+                       )
+
+    # Generate the report
+    write_report(html, "attack_tree.pdf")
+    return "Report generated successfully"
 
 def exec_sh(script):
     # The command you want to execute
@@ -136,7 +238,26 @@ user_proxy.register_function(
     function_map={
         "python": exec_python        }
 )
-# Define your Pydantic model for request validation
+
+"""
+# Test without FastAPI
+topnode = "Stealing User's Data"
+app_architecture = "In a web application hosted on AWS, the data flow begins with the user's interaction with the front-end, which triggers an HTTP request. This request is routed through Amazon Route 53 to an Elastic Load Balancer, which then directs the traffic to the appropriate EC2 instances where the application is hosted. The application code, running on an AWS Elastic Beanstalk environment, processes the request, which includes querying an Amazon RDS database and Amazon DynamoDB table to retrieve or store data. AWS Lambda functions are also utilized for serverless computation. The application interacts with additional AWS services like S3 for object storage, and Amazon ElastiCache to access frequently requested data quickly. Once the server-side processing is complete, the data is formatted (as JSON) and sent back through the Internet to the user's browser, where it is rendered, and any dynamic client-side actions are handled by JavaScript."
+message = "Create an attack tree diagram for the following app architecture, " + "with the top node being " + topnode + ". App architecture: " + app_architecture
+
+# Start the conversation with the user proxy
+sys.stdout = DualOutput('conversation.log')
+print("STARTING CONVERSATION: ", message)
+user_proxy.initiate_chat(
+    chatbot,
+    message=message
+)
+sys.stdout.log.close()
+sys.stdout = sys.stdout.terminal
+"""
+
+
+# Define Pydantic model for request validation
 class DiagramRequest(BaseModel):
     description: str
     topnode: str
@@ -153,7 +274,7 @@ def hello():
 @app.post('/generate-diagram')
 async def generate_diagram(request: DiagramRequest):
     try:
-        message = "Create an attack tree diagram for the following app architecture, " + "with the top node being " + request.topnode + ". App architecture: " + request.description
+        message = "Create an attack tree diagram for the following app architecture, " + "with the top node being " + request.topnode + ". App architecture: " + request.description + "DESCRIPTION_END"
 
         # Start the conversation with the user proxy
         user_proxy.initiate_chat(
@@ -161,14 +282,38 @@ async def generate_diagram(request: DiagramRequest):
             message=message
         )
 
-        image_path = 'attack_tree.png'
+        image_path = 'attack_tree.svg'
 
         if os.path.exists(image_path):
-            return FileResponse(image_path, media_type='image/png')
+            return FileResponse(image_path, media_type='image/svg')
         else:
             raise HTTPException(status_code=404, detail="Image not found")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# No need to specify host and port here, run with Uvicorn or similar ASGI server
+@app.post('/generate-diagram-pdf')
+async def generate_diagram(request: DiagramRequest):
+    try:
+        message = "Create an attack tree diagram for the following app architecture, " + "with the top node being " + request.topnode + ". App architecture: " + request.description + "DESCRIPTION_END"
+
+        # Start the conversation with the user proxy
+        sys.stdout = DualOutput('conversation.log')
+        print("STARTING CONVERSATION: ", message)
+        user_proxy.initiate_chat(
+            chatbot,
+            message=message
+        )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
+
+        result_path = 'attack_tree.pdf'
+
+        if os.path.exists(result_path):
+            return FileResponse(result_path, media_type='application/pdf')
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
