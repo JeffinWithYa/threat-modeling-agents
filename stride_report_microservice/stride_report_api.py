@@ -5,6 +5,42 @@ import autogen
 from pdf_reports import pug_to_html, write_report
 import ast
 import os
+import sys
+import re
+
+class DualOutput:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "w")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        # This flush method is needed for compatibility with the standard output.
+        self.terminal.flush()
+        self.log.flush()
+
+def calculate_cost(conversation_log):
+    conversation_log = conversation_log[1:]
+    input_cost_per_1000 = 0.01
+    output_cost_per_1000 = 0.03
+
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_characters = 0
+
+    for log in conversation_log:
+        content = str(log)
+        total_characters += len(content)
+        total_input_tokens += len(content) // 4
+        total_output_tokens = total_characters // 4
+
+    total_input = (total_input_tokens * input_cost_per_1000)/1000
+    total_output = (total_output_tokens * output_cost_per_1000)/1000
+    total_cost = (total_input_tokens * input_cost_per_1000 / 1000) + (total_output_tokens * output_cost_per_1000 / 1000)
+    return total_cost, total_input, total_output
 
 
 config_list = autogen.config_list_from_json(
@@ -14,6 +50,17 @@ config_list = autogen.config_list_from_json(
     },
 )
 
+
+# for local testing
+"""
+config_list = autogen.config_list_from_json(
+    "OAI_CONFIG_LIST",
+    file_location="../",
+    filter_dict={
+        "model": ["gpt-4-1106-preview"],
+    },
+)
+"""
 llm_config = {
     "functions": [
         {
@@ -58,10 +105,34 @@ user_proxy = autogen.UserProxyAgent(
     code_execution_config={"work_dir": "coding"},
 )
 
-# define functions according to the function desription
+
+def extract_prompt(text):
+    pattern = r"STARTING CONVERSATION:\s*(.*?)\s*DESCRIPTION_END"
+    match = re.search(pattern, text, re.DOTALL)
+
+    if match:
+        return match.group(1).strip()
+    else:
+        return "Error printing prompt"
 
 def exec_python(cell, details, longform):
-    print(longform)
+
+    agent_discussion = ""
+    total_cost = 0
+    total_input = 0
+    total_output = 0
+    original_prompt = ""
+
+    with open("conversation.log", "r") as f:
+        agent_discussion = f.read()
+        total_cost, total_input, total_output = calculate_cost(agent_discussion)
+        original_prompt = extract_prompt(agent_discussion)
+
+
+
+
+    agent_discussion_pug = '\n    '.join('| ' + line for line in agent_discussion.split('\n'))
+
 
     pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
 #sidebar
@@ -93,7 +164,25 @@ table.ui.celled.table
 :markdown
     ##  Discussion
     {{ longform }}
-      
+
+:markdown
+    ## Appendix
+
+.ui.container
+  .ui.icon.message.yellow.block-center
+    i.exclamation.circle.icon
+    .content
+      .header Original Prompt and Inputted App Architecture
+      p.
+        {{ original_prompt }}
+
+:markdown
+    ### Usage Costs
+        #### Total Cost: ${{ total_cost }} USD
+        #### Input Tokens Cost: ${{ total_input }} USD
+        #### Output Tokens Cost: ${{ total_output }} USD
+    ### Conversation Log
+      {{ agent_discussion }}
       """
 
 
@@ -113,13 +202,19 @@ table.ui.celled.table
     important_message_body = s
     table_rows = generate_pug_table_rows(details)
     pug_with_table = pug_template_string.replace("{{ table_rows }}", table_rows)
+    pug_with_discussion = pug_with_table.replace("{{ agent_discussion }}", agent_discussion_pug)
+
 
     #print(pug_with_table)
 
     # Pass the variables to the Pug template
-    html = pug_to_html(string=pug_with_table, 
+    html = pug_to_html(string=pug_with_discussion, 
                        important_message_body=important_message_body,
                        longform=longform,
+                       original_prompt=original_prompt,
+                       total_cost=total_cost,
+                       total_input=total_input,
+                       total_output=total_output,
                        )
 
     # Generate the report
@@ -154,6 +249,24 @@ user_proxy.register_function(
         }
 )
 
+"""
+# Test without FastAPI
+
+app_architecture = "The application architecture is a web application with a database. The web application is written in Python and uses the Flask framework. The database is a MySQL database. The web application is hosted on AWS EC2. The web application is a simple blog application that allows users to create posts and comment on posts. The web application uses a MySQL database to store the posts and comments. The web application uses the Flask framework to handle requests and responses. The web application uses the Jinja2 templating engine to render HTML templates. The web application uses the WTForms library to handle forms. The web application uses the Flask-Login library to handle user authentication. The web application uses the Flask-WTF library to handle forms. The web application uses the Flask-Bootstrap library to handle forms. The web application uses the Flask-Admin library to handle forms. The web application uses the Flask-RESTful library to handle forms."
+message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + app_architecture + "DESCRIPTION_END"
+sys.stdout = DualOutput('conversation.log')
+print("STARTING CONVERSATION: ", message)
+user_proxy.initiate_chat(
+    chatbot,
+    message=message
+)
+sys.stdout.log.close()
+sys.stdout = sys.stdout.terminal
+"""
+
+
+
+
 # Define your Pydantic model for request validation
 class PdfRequest(BaseModel):
     description: str
@@ -171,13 +284,18 @@ def hello():
 @app.post('/generate-stride-report-pdf')
 async def generate_diagram(request: PdfRequest):
     try:
-        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description
+        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description + "DESCRIPTION_END"
 
+        sys.stdout = DualOutput('conversation.log')
+        print("STARTING CONVERSATION: ", message)
+        
         # Start the conversation with the user proxy
         user_proxy.initiate_chat(
             chatbot,
             message=message
         )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
 
         pdf_path = 'stride_report.pdf'
 
@@ -189,5 +307,6 @@ async def generate_diagram(request: PdfRequest):
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
