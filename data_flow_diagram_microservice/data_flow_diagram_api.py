@@ -4,8 +4,53 @@ from pydantic import BaseModel
 import os
 import subprocess
 import autogen
+import sys
+import re
+from pdf_reports import pug_to_html, write_report
 
+class DualOutput:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "w")
 
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        # This flush method is needed for compatibility with the standard output.
+        self.terminal.flush()
+        self.log.flush()
+
+def calculate_cost(conversation_log):
+    conversation_log = conversation_log[1:]
+    input_cost_per_1000 = 0.01
+    output_cost_per_1000 = 0.03
+
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_characters = 0
+
+    for log in conversation_log:
+        content = str(log)
+        total_characters += len(content)
+        total_input_tokens += len(content) // 4
+        total_output_tokens = total_characters // 4
+
+    total_input = (total_input_tokens * input_cost_per_1000)/1000
+    total_output = (total_output_tokens * output_cost_per_1000)/1000
+    total_cost = (total_input_tokens * input_cost_per_1000 / 1000) + (total_output_tokens * output_cost_per_1000 / 1000)
+    return total_cost, total_input, total_output
+
+# define functions according to the function desription
+def extract_prompt(text):
+    pattern = r"STARTING CONVERSATION:\s*(.*?)\s*DESCRIPTION_END"
+    match = re.search(pattern, text, re.DOTALL)
+
+    if match:
+        return match.group(1).strip()
+    else:
+        return "Error printing prompt"
 
 config_list = autogen.config_list_from_json(
     env_or_file="OAI_CONFIG_LIST",
@@ -123,12 +168,66 @@ if __name__ == "__main__":
 
     print("pytm File written successfully")
     exec_sh("sh")
+
+        # Create PDF
+    agent_discussion = ""
+    total_cost = 0
+    total_input = 0
+    total_output = 0
+    original_prompt = ""
+    with open("conversation.log", "r") as f:
+        agent_discussion = f.read()
+        total_cost, total_input, total_output = calculate_cost(agent_discussion)
+        original_prompt = extract_prompt(agent_discussion)
+
+    agent_discussion_pug = '\n    '.join('| ' + line for line in agent_discussion.split('\n'))
+
+    pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
+#sidebar
+
+.ui.stacked.segment.inverted.grey: p.
+  This is an auto-generated Data Flow Diagram, assembled by GPT-4 Threat Modeling Agents. 
+  The system reviews the specified application architecture, and generates a data flow diagram using pytm and GraphViz. The result may still contain errors.
+  
+img(style="width:600px; height:600px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/tm/dfd.svg")
+
+:markdown
+    ## Appendix
+
+.ui.container
+  .ui.icon.message.yellow.block-center
+    i.exclamation.circle.icon
+    .content
+      .header Original Prompt and Inputted App Architecture
+      p.
+        {{ original_prompt }}
+
+:markdown
+    ### Usage Costs
+        #### Total Cost: ${{ total_cost }} USD
+        #### Input Tokens Cost: ${{ total_input }} USD
+        #### Output Tokens Cost: ${{ total_output }} USD
+    ### Conversation Log
+      {{ agent_discussion }}
+      """
+    pug_with_discussion = pug_template_string.replace("{{ agent_discussion }}", agent_discussion_pug)
+    # Pass the variables to the Pug template
+    html = pug_to_html(string=pug_with_discussion, 
+                       original_prompt=original_prompt,
+                       total_cost=total_cost,
+                       total_input=total_input,
+                       total_output=total_output,
+                       )
+
+    # Generate the report
+    write_report(html, "dfd_report.pdf")
+    return "Report generated successfully"
     
 
 
 def exec_sh(script):
     # The command you want to execute
-    command = "python3 pytm_script.py --dfd | dot -Tpng -o tm/dfd.png"
+    command = "python3 pytm_script.py --dfd | dot -Tsvg -o tm/dfd.svg"
     
     # Execute the command
     process = subprocess.Popen(
@@ -167,22 +266,53 @@ def hello():
 @app.post('/generate-diagram')
 async def generate_diagram(request: DiagramRequest):
     try:
-        message = "Create a data flow diagram for the following app architecture: " + request.description
+        message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
 
         # Start the conversation with the user proxy
+        sys.stdout = DualOutput('conversation.log')
+        print("STARTING CONVERSATION: ", message)
+
+
         user_proxy.initiate_chat(
             chatbot,
             message=message
         )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
 
-        image_path = 'tm/dfd.png'
+        image_path = 'tm/dfd.svg'
 
         if os.path.exists(image_path):
-            return FileResponse(image_path, media_type='image/png')
+            return FileResponse(image_path, media_type='image/svg')
         else:
             raise HTTPException(status_code=404, detail="Image not found")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post('/generate-diagram-pdf')
+async def generate_diagram(request: DiagramRequest):
+    try:
+        message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
+
+        # Start the conversation with the user proxy
+        sys.stdout = DualOutput('conversation.log')
+        print("STARTING CONVERSATION: ", message)
+
+        user_proxy.initiate_chat(
+            chatbot,
+            message=message
+        )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
+
+        result_path = 'dfd_report.pdf'
+
+        if os.path.exists(result_path):
+            return FileResponse(result_path, media_type='application/pdf')
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 # No need to specify host and port here, run with Uvicorn or similar ASGI server
