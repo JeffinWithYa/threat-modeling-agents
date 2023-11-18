@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
+import httpx
+
 
 # """
 config_list = autogen.config_list_from_json(
@@ -181,7 +183,8 @@ def exec_python(results, prompt):
 .ui.stacked.segment.inverted.grey: p.
   This is an auto-generated Threat Modeling Report, assembled by GPT-4 Threat Modeling Agents. 
   The system reviews the specified application architecture. 
-  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats, but may still contain errors.
+  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats. 
+  It then delivers feedback from specific organizational stakeholders: engineering, architecture, business, and compliance. The report may still contain errors.
   
 .ui.container
   .ui.icon.message.blue.block-center
@@ -202,16 +205,23 @@ table.ui.celled.table
   tbody
       {{ table_rows }}
 
+:markdown
+  ## Data Flow Diagram
+img(style="width:100%; height:auto;" src="file:///usr/src/app/dfd_diagram.svg")
+
+
+:markdown
+    ## Appendix
+
 .ui.container
   .ui.icon.message.yellow.block-center
     i.exclamation.circle.icon
     .content
-      .header Original Prompt and App Architecture
+      .header Original Prompt and Inputted App Architecture
       p.
         {{ original_prompt }}
 
 :markdown
-    ## Appendix
     ### Usage Costs
         #### Total Cost: ${{ total_cost }} USD
         #### Input Tokens Cost: ${{ total_input }} USD
@@ -357,10 +367,32 @@ sys.stdout = sys.stdout.terminal
 """
 
 
-# """"
 # Define your Pydantic model for request validation
 class PdfRequest(BaseModel):
     description: str
+
+async def fetch_dfd_diagram(app_architecture: PdfRequest):
+    try:
+        payload = app_architecture.dict()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            print("Sending request to DFD container")
+            response = await client.post("http://dfdcontainer:81/generate-diagram", json=payload)
+            if response.status_code == 200:
+                return response.text
+            else:
+                print("Response Status:", response.status_code)
+                print("Response Content:", response.text)
+                print("Error in fetch_dfd_diagram:", e)
+
+                raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+def save_svg(svg_content, file_path="dfd_diagram.svg"):
+    with open(file_path, "w") as file:
+        file.write(svg_content)
+    return file_path
 
 # Create a FastAPI instance
 app = FastAPI()
@@ -374,6 +406,10 @@ def hello():
 @app.post('/generate-roles-report-pdf')
 async def generate_diagram(request: PdfRequest):
     try:
+        # Fetch and save the SVG diagram
+        diagram_request = PdfRequest(description=request.description)
+        svg_content = await fetch_dfd_diagram(diagram_request)
+        svg_file_path = save_svg(svg_content)
         message = "Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. App architecture: " + request.description
         original_message = message
 
