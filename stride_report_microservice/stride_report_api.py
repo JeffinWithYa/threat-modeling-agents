@@ -7,6 +7,8 @@ import ast
 import os
 import sys
 import re
+import httpx
+
 
 class DualOutput:
     def __init__(self, filename):
@@ -101,7 +103,7 @@ user_proxy = autogen.UserProxyAgent(
     name="user_proxy",
     is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
     human_input_mode="NEVER",
-    max_consecutive_auto_reply=10,
+    max_consecutive_auto_reply=5,
     code_execution_config={"work_dir": "coding"},
 )
 
@@ -160,6 +162,11 @@ table.ui.celled.table
       th Mitigations
   tbody
       {{ table_rows }}
+
+:markdown
+  ## Data Flow Diagram
+img(style="width:100%; height:auto;" src="file:///usr/src/app/dfd_diagram.svg")
+
 
 :markdown
     ##  Discussion
@@ -264,12 +271,36 @@ sys.stdout.log.close()
 sys.stdout = sys.stdout.terminal
 """
 
-
-
-
 # Define your Pydantic model for request validation
 class PdfRequest(BaseModel):
     description: str
+
+async def fetch_dfd_diagram(app_architecture: PdfRequest):
+    try:
+        payload = app_architecture.dict()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            print("Sending request to DFD container")
+            response = await client.post("http://dfdcontainer:81/generate-diagram", json=payload)
+            if response.status_code == 200:
+                return response.text
+            else:
+                print("Response Status:", response.status_code)
+                print("Response Content:", response.text)
+                print("Error in fetch_dfd_diagram:", e)
+
+                raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+def save_svg(svg_content, file_path="dfd_diagram.svg"):
+    with open(file_path, "w") as file:
+        file.write(svg_content)
+    return file_path
+
+
+
+
 
 # Create a FastAPI instance
 app = FastAPI()
@@ -282,8 +313,13 @@ def hello():
 
 
 @app.post('/generate-stride-report-pdf')
-async def generate_diagram(request: PdfRequest):
+async def generate_pdf(request: PdfRequest):
     try:
+        # Fetch and save the SVG diagram
+        diagram_request = PdfRequest(description=request.description)
+        svg_content = await fetch_dfd_diagram(diagram_request)
+        svg_file_path = save_svg(svg_content)
+
         message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description + "DESCRIPTION_END"
 
         sys.stdout = DualOutput('conversation.log')
