@@ -24,10 +24,10 @@ RUN apt-get update && apt-get install -y graphviz
 RUN mkdir tm && chmod 777 tm
 
 # Make port 80 available to the world outside this container
-EXPOSE 81
+EXPOSE 8080
 
 # Define environment variable
 ENV NAME World
 
 # Run app.py when the container launches
-CMD ["uvicorn", "data_flow_diagram_api:app", "--host", "0.0.0.0", "--port", "81"]
+CMD ["uvicorn", "data_flow_diagram_api:app", "--host", "0.0.0.0", "--port", "8080"]
