@@ -4,7 +4,7 @@ from autogen.agentchat.agent import Agent
 from autogen.agentchat.assistant_agent import AssistantAgent
 from pdf_reports import pug_to_html, write_report
 import sys
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, HTTPException, Response, status, Depends, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
@@ -374,9 +374,16 @@ class PdfRequest(BaseModel):
 async def fetch_dfd_diagram(app_architecture: PdfRequest):
     try:
         payload = app_architecture.dict()
+        api_key = os.getenv("FASTAPI_KEY")  # Get the API key from environment variable
+        dfd_service_url = os.getenv("DFD_SERVICE_URL")  # Get the DFD service URL from environment variable
+
+
+        headers = {
+            "x-api-key": api_key  # Include the API key in the request headers
+        }
         async with httpx.AsyncClient(timeout=60.0) as client:
             print("Sending request to DFD container")
-            response = await client.post("http://dfdcontainer:81/generate-diagram", json=payload)
+            response = await client.post(dfd_service_url, json=payload, headers=headers)
             if response.status_code == 200:
                 return response.text
             else:
@@ -395,16 +402,20 @@ def save_svg(svg_content, file_path="dfd_diagram.svg"):
     return file_path
 
 # Create a FastAPI instance
+
+def validate_api_key(x_api_key: str = Header(...)):
+    print("\n\nValidating API key\n\n")
+    expected_api_key = os.getenv("FASTAPI_KEY")  # Get API key from environment variable
+    if not expected_api_key or x_api_key != expected_api_key:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+    return x_api_key
+
 app = FastAPI()
 
 # Other configurations and function definitions remain the same...
 
-@app.get('/')
-def hello():
-    return {"message": "Hello World!"}
-
 @app.post('/generate-roles-report-pdf')
-async def generate_diagram(request: PdfRequest):
+async def generate_diagram(request: PdfRequest, api_key: str = Depends(validate_api_key)):
     try:
         # Fetch and save the SVG diagram
         diagram_request = PdfRequest(description=request.description)

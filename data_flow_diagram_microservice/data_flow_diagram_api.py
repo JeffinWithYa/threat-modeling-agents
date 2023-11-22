@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import FastAPI, HTTPException, Response, status, Depends, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
@@ -254,17 +254,20 @@ user_proxy.register_function(
 class DiagramRequest(BaseModel):
     description: str
 
+def validate_api_key(x_api_key: str = Header(...)):
+    print("\n\nValidating API key\n\n")
+    expected_api_key = os.getenv("FASTAPI_KEY")  # Get API key from environment variable
+    if not expected_api_key or x_api_key != expected_api_key:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+    return x_api_key
+
 # Create a FastAPI instance
 app = FastAPI()
 
 # Other configurations and function definitions remain the same...
 
-@app.get('/')
-def hello():
-    return {"message": "Hello World!"}
-
 @app.post('/generate-diagram')
-async def generate_diagram(request: DiagramRequest):
+async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
     try:
         message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
 
@@ -288,10 +291,11 @@ async def generate_diagram(request: DiagramRequest):
             raise HTTPException(status_code=404, detail="Image not found")
 
     except Exception as e:
+        print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post('/generate-diagram-pdf')
-async def generate_diagram(request: DiagramRequest):
+async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
     try:
         message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
 

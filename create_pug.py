@@ -113,33 +113,18 @@ table.ui.celled.table
           | 
           | End of Engineering Discussion.
 
+.ui.container
+  .ui.icon.message.yellow.block-center
+    i.exclamation.circle.icon
+    .content
+      .header Original Prompt and App Architecture
+      p.
+        oringal prompt and app architecture
 
 :markdown
     ## Appendix
-
-B1 (to chat_manager):
-
-Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. App architecture: The application architecture is a web application with a database. The web application is written in Python and uses the Flask framework. The database is a MySQL database. The web application is hosted on AWS EC2. The web application is a simple blog application that allows users to create posts and comment on posts. The web application uses a MySQL database to store the posts and comments. The web application uses the Flask framework to handle requests and responses. The web application uses the Jinja2 templating engine to render HTML templates. The web application uses the WTForms library to handle forms. The web application uses the Flask-Login library to handle user authentication. The web application uses the Flask-WTF library to handle forms. The web application uses the Flask-Bootstrap library to handle forms. The web application uses the Flask-Admin library to handle forms. The web application uses the Flask-RESTful library to handle forms.
-
---------------------------------------------------------------------------------
-A1 (to chat_manager):
-
-NEXT: B1
-
---------------------------------------------------------------------------------
-Extracted suggested_next = B1
-B1 (to chat_manager):
-
-Hello A1,
-
-I am reaching out to request an analysis of our current application architecture using the STRIDE and DREAD methodologies. Our team has identified the following components and potential attack vectors within this web application:
-
-1. **Web Application (Python/Flask):**
-   - Spoofing identity
-   - Tampering with data
-   - Repudiation threats
-   - Information disclosure
-   - Denial of Service (DoS)
+    ### Agent Discussion
+      agent discussion
 
 """
 
