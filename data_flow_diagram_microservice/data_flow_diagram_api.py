@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response, status, Depends, Header
+from fastapi import FastAPI, HTTPException, Response, status, Depends, Header, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
@@ -7,6 +7,20 @@ import autogen
 import sys
 import re
 from pdf_reports import pug_to_html, write_report
+from databases import Database
+import ssl
+import uuid
+
+
+DATABASE_URL = os.getenv("DATABASE_URL") 
+ssl_context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt')
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+database = Database(DATABASE_URL, ssl=ssl_context)
+
+
+
 
 class DualOutput:
     def __init__(self, filename):
@@ -70,8 +84,12 @@ llm_config = {
                         "type": "string",
                         "description": "The text containing the pytm script.",
                     },
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task id for the current task.",
+                    }
                 },
-                "required": ["cell"],
+                "required": ["cell", "task_id"],
             },
             
         },
@@ -131,13 +149,13 @@ user_proxy = autogen.UserProxyAgent(
     name="user_proxy",
     is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
     human_input_mode="NEVER",
-    max_consecutive_auto_reply=10,
+    max_consecutive_auto_reply=5,
     code_execution_config={"work_dir": "coding"},
 )
 
 # define functions according to the function desription
 
-def exec_python(cell):
+def exec_python(cell, task_id):
     
     pytm_template = """
 #!/usr/bin/env python
@@ -167,7 +185,7 @@ if __name__ == "__main__":
             file.write(formatted_template)
 
     print("pytm File written successfully")
-    exec_sh("sh")
+    exec_sh("sh", task_id)
 
         # Create PDF
     agent_discussion = ""
@@ -175,7 +193,8 @@ if __name__ == "__main__":
     total_input = 0
     total_output = 0
     original_prompt = ""
-    with open("conversation.log", "r") as f:
+    log_file = "conversation_" + task_id + ".log"
+    with open(log_file, "r") as f:
         agent_discussion = f.read()
         total_cost, total_input, total_output = calculate_cost(agent_discussion)
         original_prompt = extract_prompt(agent_discussion)
@@ -220,14 +239,15 @@ img(style="width:600px; height:600px; display:block; margin:0 auto; opacity:1;" 
                        )
 
     # Generate the report
+    pdf_path = "dfd_report" + task_id + ".pdf"
     write_report(html, "dfd_report.pdf")
     return "Report generated successfully"
     
 
 
-def exec_sh(script):
+def exec_sh(script, task_id):
     # The command you want to execute
-    command = "python3 pytm_script.py --dfd | dot -Tsvg -o tm/dfd.svg"
+    command = "python3 pytm_script.py --dfd | dot -Tsvg -o tm/" + task_id + "dfd.svg"
     
     # Execute the command
     process = subprocess.Popen(
@@ -248,8 +268,39 @@ def exec_sh(script):
 # register the functions
 user_proxy.register_function(
     function_map={
-        "python": exec_python        }
+        "python": exec_python        
+    }
 )
+
+async def generate_diagram_background(task_id: str, request_description: str):
+    try:
+        message = "Create a data flow diagram for the following app architecture: " + request_description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
+
+        # Start the conversation with the user proxy
+        sys.stdout = DualOutput(f'conversation_{task_id}.log')
+        print("STARTING CONVERSATION: ", message)
+
+        user_proxy.initiate_chat(
+            chatbot,
+            message=message
+        )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
+
+        image_path = f"tm/{task_id}dfd.svg"
+        print("\n\nIMAGE PATH: ", image_path)
+
+        # Update the task status to completed and set the file path in the database
+        await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": image_path})
+
+
+    except Exception as e:
+        print(e)
+        # Update the task status to failed in the database
+        await database.execute("UPDATE TaskStatus SET status = :status, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "failed"})
+
+
+
 # Define your Pydantic model for request validation
 class DiagramRequest(BaseModel):
     description: str
@@ -264,10 +315,23 @@ def validate_api_key(x_api_key: str = Header(...)):
 # Create a FastAPI instance
 app = FastAPI()
 
+@app.on_event("startup")
+async def startup():
+    await database.connect()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await database.disconnect()
+
 # Other configurations and function definitions remain the same...
 
 @app.post('/generate-diagram')
-async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
+async def generate_diagram(request: DiagramRequest, background_tasks: BackgroundTasks, api_key: str = Depends(validate_api_key)):
+    task_id = str(uuid.uuid4())
+    await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
+    background_tasks.add_task(generate_diagram_background, task_id, request.description)
+    return {"task_id": task_id}
+"""
     try:
         message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
 
@@ -293,6 +357,7 @@ async def generate_diagram(request: DiagramRequest, api_key: str = Depends(valid
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
+"""
 
 @app.post('/generate-diagram-pdf')
 async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
@@ -319,4 +384,21 @@ async def generate_diagram(request: DiagramRequest, api_key: str = Depends(valid
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-# No need to specify host and port here, run with Uvicorn or similar ASGI server
+
+@app.get("/get-diagram/{task_id}")
+async def get_diagram(task_id: str):
+    query = "SELECT status, filePath FROM TaskStatus WHERE id = :task_id"
+    result = await database.fetch_one(query, {"task_id": task_id})
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    task_status, image_path = result['status'], result['filePath']
+
+    if task_status == "completed" and os.path.exists(image_path):
+        return FileResponse(image_path, media_type='image/svg+xml')
+    elif task_status == "pending":
+        raise HTTPException(status_code=202, detail="Task is still processing")
+    else:
+        raise HTTPException(status_code=404, detail="Image not found or task failed")
+
