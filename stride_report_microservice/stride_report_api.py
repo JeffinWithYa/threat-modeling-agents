@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response, status, Depends, Header
+from fastapi import FastAPI, HTTPException, Response, status, Depends, Header, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import autogen
@@ -8,6 +8,16 @@ import os
 import sys
 import re
 import httpx
+from databases import Database
+import ssl
+import uuid
+
+DATABASE_URL = os.getenv("DATABASE_URL") 
+ssl_context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt')
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+database = Database(DATABASE_URL, ssl=ssl_context)
 
 
 class DualOutput:
@@ -83,8 +93,12 @@ llm_config = {
                         "type": "string",
                         "description": "Longform write-up of the threat modeling exercise.",
                     },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Task ID of the task to be updated.",
+                    }
                 },
-                "required": ["cell", "details", "longform"],
+                "required": ["cell", "details", "longform", "task_id"],
             },
         },
     ],
@@ -117,7 +131,7 @@ def extract_prompt(text):
     else:
         return "Error printing prompt"
 
-def exec_python(cell, details, longform):
+def exec_python(cell, details, longform, task_id):
 
     agent_discussion = ""
     total_cost = 0
@@ -125,7 +139,8 @@ def exec_python(cell, details, longform):
     total_output = 0
     original_prompt = ""
 
-    with open("conversation.log", "r") as f:
+    log_file = log_file = "conversation_" + task_id + ".log"
+    with open(log_file, "r") as f:
         agent_discussion = f.read()
         total_cost, total_input, total_output = calculate_cost(agent_discussion)
         original_prompt = extract_prompt(agent_discussion)
@@ -165,7 +180,7 @@ table.ui.celled.table
 
 :markdown
   ## Data Flow Diagram
-img(style="width:100%; height:auto;" src="file:///usr/src/app/dfd_diagram.svg")
+img(style="width:100%; height:auto;" src="file:///usr/src/app/{{ image_path }}")
 
 
 :markdown
@@ -210,6 +225,7 @@ img(style="width:100%; height:auto;" src="file:///usr/src/app/dfd_diagram.svg")
     table_rows = generate_pug_table_rows(details)
     pug_with_table = pug_template_string.replace("{{ table_rows }}", table_rows)
     pug_with_discussion = pug_with_table.replace("{{ agent_discussion }}", agent_discussion_pug)
+    image_path = "dfd_" + task_id + ".svg"
 
 
     #print(pug_with_table)
@@ -222,10 +238,12 @@ img(style="width:100%; height:auto;" src="file:///usr/src/app/dfd_diagram.svg")
                        total_cost=total_cost,
                        total_input=total_input,
                        total_output=total_output,
+                       image_path=image_path
                        )
 
     # Generate the report
-    write_report(html, "stride_report.pdf")
+    final_report = "stride_report_" + task_id + ".pdf" 
+    write_report(html, final_report)
     return "Report generated successfully"
 
 def generate_pug_table_rows(data):
@@ -281,12 +299,12 @@ async def fetch_dfd_diagram(app_architecture: PdfRequest):
         api_key = os.getenv("FASTAPI_KEY")  # Get the API key from environment variable
         dfd_service_url = os.getenv("DFD_API_URL")  # Get the DFD service URL from environment variable
 
+
         headers = {
             "x-api-key": api_key  # Include the API key in the request headers
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            print("Sending request to DFD container")
             response = await client.post(dfd_service_url, json=payload, headers=headers)
             if response.status_code == 200:
                 return response.text
@@ -312,24 +330,63 @@ def validate_api_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return x_api_key
 
+async def generate_pdf_background(task_id: str, request_description: str):
+    try:
+        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
+
+        # Start the conversation with the user proxy
+        sys.stdout = DualOutput(f'conversation_{task_id}.log')
+        print("STARTING CONVERSATION: ", message)
+
+        user_proxy.initiate_chat(
+            chatbot,
+            message=message
+        )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
+
+        pdf_path = f"stride_report_{task_id}.pdf"
+        print("\n\nPDF PATH: ", image_path)
+
+        # Update the task status to completed and set the file path in the database
+        await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": pdf_path})
+
+
+    except Exception as e:
+        print(e)
+        # Update the task status to failed in the database
+        await database.execute("UPDATE TaskStatus SET status = :status, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "failed"})
 
 # Create a FastAPI instance
 app = FastAPI()
 
+@app.on_event("startup")
+async def startup():
+    await database.connect()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await database.disconnect()
+
 # Other configurations and function definitions remain the same...
 
 
-@app.post('/generate-stride-report-pdf')
+@app.post('/generate-stride-report-direct')
 async def generate_pdf(request: PdfRequest, api_key: str = Depends(validate_api_key)):
     try:
+        task_id = str(uuid.uuid4())
+        print("\n\nCALLING DB WITH ", task_id)
+        await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
+        print("\n\nDB CALL COMPLETE")
         # Fetch and save the SVG diagram
         diagram_request = PdfRequest(description=request.description)
         svg_content = await fetch_dfd_diagram(diagram_request)
-        svg_file_path = save_svg(svg_content)
+        svg_file_name = "dfd_" + task_id + ".svg"
+        svg_file_path = save_svg(svg_content, svg_file_name)
 
-        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description + "DESCRIPTION_END"
+        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
 
-        sys.stdout = DualOutput('conversation.log')
+        sys.stdout = DualOutput(f'conversation_{task_id}.log')
         print("STARTING CONVERSATION: ", message)
         
         # Start the conversation with the user proxy
@@ -340,7 +397,9 @@ async def generate_pdf(request: PdfRequest, api_key: str = Depends(validate_api_
         sys.stdout.log.close()
         sys.stdout = sys.stdout.terminal
 
-        pdf_path = 'stride_report.pdf'
+        pdf_path = f"stride_report_{task_id}.pdf"
+
+        await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": pdf_path})
 
         if os.path.exists(pdf_path):
             return FileResponse(pdf_path, media_type='application/pdf')
@@ -351,5 +410,28 @@ async def generate_pdf(request: PdfRequest, api_key: str = Depends(validate_api_
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post('/generate-stride-report')
+async def generate_stride(request: DiagramRequest, background_tasks: BackgroundTasks, api_key: str = Depends(validate_api_key)):
+    task_id = str(uuid.uuid4())
+    await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
+    background_tasks.add_task(generate_pdf_background, task_id, request.description)
+    return {"task_id": task_id}
+
+@app.get("/get-stride/{task_id}")
+async def get_diagram(task_id: str):
+    query = "SELECT status, filePath FROM TaskStatus WHERE id = :task_id"
+    result = await database.fetch_one(query, {"task_id": task_id})
+
+    if result is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    task_status, pdf_path = result['status'], result['filePath']
+
+    if task_status == "completed" and os.path.exists(image_path):
+        return FileResponse(pdf_path, media_type='application/pdf')
+    elif task_status == "pending":
+        raise HTTPException(status_code=202, detail="Task is still processing")
+    else:
+        raise HTTPException(status_code=404, detail="PDF not found or task failed")
 
 
