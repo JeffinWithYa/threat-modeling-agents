@@ -7,13 +7,12 @@ import ast
 import os
 import sys
 import re
-import httpx
 from databases import Database
 import ssl
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
-
+import requests
 executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
 
 
@@ -315,27 +314,23 @@ def initiate_chat_blocking(task_id: str, request_description: str):
 
 
 
-async def fetch_dfd_diagram(app_architecture: PdfRequest):
+def fetch_dfd_diagram(app_architecture: PdfRequest):
     try:
         payload = app_architecture.dict()
         api_key = os.getenv("FASTAPI_KEY")  # Get the API key from environment variable
         dfd_service_url = os.getenv("DFD_API_URL")  # Get the DFD service URL from environment variable
 
-
         headers = {
             "x-api-key": api_key  # Include the API key in the request headers
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(dfd_service_url, json=payload, headers=headers)
-            if response.status_code == 200:
-                return response.text
-            else:
-                print("Response Status:", response.status_code)
-                print("Response Content:", response.text)
-                print("Error in fetch_dfd_diagram:", e)
-
-                raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
+        response = requests.post(dfd_service_url, json=payload, headers=headers, timeout=180.0)
+        if response.status_code == 200:
+            return response.text
+        else:
+            print("Response Status:", response.status_code)
+            print("Response Content:", response.text)
+            raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -354,15 +349,16 @@ def validate_api_key(x_api_key: str = Header(...)):
 
 async def generate_pdf_background(task_id: str, request_description: str):
     try:
+        loop = asyncio.get_event_loop()
+
 
 
         diagram_request = PdfRequest(description=request_description)
-        svg_content = await fetch_dfd_diagram(diagram_request)
+        svg_content = await loop.run_in_executor(executor, fetch_dfd_diagram, diagram_request)
         print("\n\nBACK FROM FETCHING DFD DIAGRAM")
         svg_file_name = "dfd_" + task_id + ".svg"
         svg_file_path = save_svg(svg_content, svg_file_name)
         
-        loop = asyncio.get_event_loop()
         await loop.run_in_executor(executor, initiate_chat_blocking, task_id, request_description)
         
         pdf_path = f"stride_report_{task_id}.pdf"
@@ -370,8 +366,6 @@ async def generate_pdf_background(task_id: str, request_description: str):
 
         # Update the task status to completed and set the file path in the database
         await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": pdf_path})
-
-        
 
 
     except Exception as e:

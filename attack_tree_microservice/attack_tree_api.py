@@ -7,6 +7,20 @@ import autogen
 import sys
 import re
 from pdf_reports import pug_to_html, write_report
+from databases import Database
+import ssl
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+
+executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
+
+DATABASE_URL = os.getenv("DATABASE_URL") 
+ssl_context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt')
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+database = Database(DATABASE_URL, ssl=ssl_context)
 
 class DualOutput:
     def __init__(self, filename):

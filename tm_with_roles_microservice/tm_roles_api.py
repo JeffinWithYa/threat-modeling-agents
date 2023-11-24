@@ -4,13 +4,23 @@ from autogen.agentchat.agent import Agent
 from autogen.agentchat.assistant_agent import AssistantAgent
 from pdf_reports import pug_to_html, write_report
 import sys
-from fastapi import FastAPI, HTTPException, Response, status, Depends, Header
+from fastapi import FastAPI, HTTPException, Response, status, Depends, Header, BackgroundTasks
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
-import httpx
+from databases import Database
+import ssl
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+import requests
+executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
+DATABASE_URL = os.getenv("DATABASE_URL") 
+ssl_context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt')
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_REQUIRED
 
-
+database = Database(DATABASE_URL, ssl=ssl_context)
 # """
 config_list = autogen.config_list_from_json(
     env_or_file="OAI_CONFIG_LIST",
@@ -120,7 +130,7 @@ def calculate_cost(conversation_log):
 def is_termination_msg(content) -> bool:
     have_content = content.get("content", None) is not None
     if have_content and "TERMINATE" in content["content"]:
-        # print("\n\nGROUPCHAT MESSAGES", group_chat.messages)
+        print("\n\nGROUPCHAT MESSAGES", group_chat.messages)
         results = parse_report_details(group_chat.messages)
         #print("\n\nRESULTS", results)
         original_message = group_chat.messages[1]['content'] + "\n\n" + str(group_chat.messages[0])
@@ -158,14 +168,23 @@ def generate_pug_table_rows(data):
     return "\n".join(pug_rows)
 
 def exec_python(results, prompt):
+    print("\n\nINSIDE EXEC PYTHON\n\n")
     # This API call currently does not support the gpt-4-1106-preview model.
     # autogen.ChatCompletion.print_usage_summary()
     total_cost, total_input, total_output = calculate_cost(group_chat.messages)
+    # parse the first message for TaskID="..."
+    print("Parsing group chat messages for taskID")
+    task_id = group_chat.messages[1]['content'].split('TaskID="')[-1].split('"')[0]
+    print("\n\nTASK ID: ", task_id)
+
+
 
 
 
     agent_discussion = ""
-    with open("conversation.log", "r") as f:
+    log_file = log_file = "conversation_" + task_id + ".log"
+
+    with open(log_file, "r") as f:
         agent_discussion = f.read()
     agent_discussion_pug = '\n    '.join('| ' + line for line in agent_discussion.split('\n'))
 
@@ -176,6 +195,9 @@ def exec_python(results, prompt):
     # 'Team A Leader' and 'Team B Leader' are the team leaders
     team_leader_A_last_message = results.get("Team A Leader", [""])[-1]
     team_leader_B_last_message = results.get("Team B Leader", [""])[-1] 
+
+    image_path = "dfd_" + task_id + ".svg"
+    print("\n\nIMAGE PATH: ", image_path)
 
     pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
 #sidebar
@@ -207,7 +229,7 @@ table.ui.celled.table
 
 :markdown
   ## Data Flow Diagram
-img(style="width:100%; height:auto;" src="file:///usr/src/app/dfd_diagram.svg")
+img(style="width:100%; height:auto;" src="file:///usr/src/app/{{ image_path }}")
 
 
 :markdown
@@ -266,10 +288,12 @@ Prioritization of Actions: The team has collectively prioritized the proposed ac
                        original_prompt=original_prompt,
                        total_cost=total_cost,
                        total_input=total_input,
-                       total_output=total_output)
+                       total_output=total_output,
+                       image_path=image_path)
 
     # Generate the report
-    write_report(html, "roles_report.pdf")
+    final_report = "roles_report_" + task_id + ".pdf" 
+    write_report(html, final_report)
     return "Report generated successfully"
 
 
@@ -346,7 +370,7 @@ list_of_agents.append(user_proxy)
 group_chat = CustomGroupChat(
     agents=list_of_agents,  # Include all agents
     messages=['Everyone cooperates and help B4 in their task. Team A has A1, A2 (engineer), A3 (architect). Team B has B1, B2 (compliance officer), and B3 (business stakeholder), and B4. Only members of the same team can talk to one another. Only team leaders (names ending with 1) can talk amongst themselves. You must use "NEXT: B1" to suggest talking to B1 for example; You can suggest only one person, you cannot suggest yourself or the previous speaker. Team leaders can identify the components and attack vectors in the app architecture, and do an analysis of each identified component/vector using STRIDE and DREAD - which they provide to their team.'],
-    max_round=30
+    max_round=11
 )
 
 
@@ -371,27 +395,23 @@ sys.stdout = sys.stdout.terminal
 class PdfRequest(BaseModel):
     description: str
 
-async def fetch_dfd_diagram(app_architecture: PdfRequest):
+def fetch_dfd_diagram(app_architecture: PdfRequest):
     try:
         payload = app_architecture.dict()
         api_key = os.getenv("FASTAPI_KEY")  # Get the API key from environment variable
         dfd_service_url = os.getenv("DFD_API_URL")  # Get the DFD service URL from environment variable
 
-
         headers = {
             "x-api-key": api_key  # Include the API key in the request headers
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            print("Sending request to DFD container")
-            response = await client.post(dfd_service_url, json=payload, headers=headers)
-            if response.status_code == 200:
-                return response.text
-            else:
-                print("Response Status:", response.status_code)
-                print("Response Content:", response.text)
-                print("Error in fetch_dfd_diagram:", e)
 
-                raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
+        response = requests.post(dfd_service_url, json=payload, headers=headers, timeout=180.0)
+        if response.status_code == 200:
+            return response.text
+        else:
+            print("Response Status:", response.status_code)
+            print("Response Content:", response.text)
+            raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -401,10 +421,46 @@ def save_svg(svg_content, file_path="dfd_diagram.svg"):
         file.write(svg_content)
     return file_path
 
-# Create a FastAPI instance
+def initiate_chat_blocking(task_id: str, request_description: str):
+    print("\n\nINSIDE INITIATE CHAT BLOCKING\n\n")
+    task_id_message = "TaskID=\"" + task_id + "\". "
+
+    message = task_id_message + "Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. App architecture: " + request_description
+
+    # Start the conversation with the user proxy
+    sys.stdout = DualOutput(f'conversation_{task_id}.log')
+    print("STARTING CONVERSATION: ", message)
+    agents_B[0].initiate_chat(manager, message=message)
+
+    sys.stdout.log.close()
+    sys.stdout = sys.stdout.terminal
+
+async def generate_pdf_background(task_id: str, request_description: str):
+    try:
+        loop = asyncio.get_event_loop()
+        diagram_request = PdfRequest(description=request_description)
+        svg_content = await loop.run_in_executor(executor, fetch_dfd_diagram, diagram_request)
+        print("\n\nBACK FROM FETCHING DFD DIAGRAM")
+        svg_file_name = "dfd_" + task_id + ".svg"
+        svg_file_path = save_svg(svg_content, svg_file_name)
+        print("\n\nSVG FILE SAVED: ", svg_file_path)
+        
+        await loop.run_in_executor(executor, initiate_chat_blocking, task_id, request_description)
+        print("\n\nBACK FROM INITIATING CHAT BLOCK")
+        pdf_path = f"roles_report_{task_id}.pdf"
+        print("\n\nPDF PATH: ", pdf_path)
+
+        # Update the task status to completed and set the file path in the database
+        await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": pdf_path})
+
+
+    except Exception as e:
+        print("\n\n PDF CREATION FAILED", e)
+        # Update the task status to failed in the database
+        await database.execute("UPDATE TaskStatus SET status = :status, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "failed"})
 
 def validate_api_key(x_api_key: str = Header(...)):
-    print("\n\nValidating API key\n\n")
+    #print("\n\nValidating API key\n\n")
     expected_api_key = os.getenv("FASTAPI_KEY")  # Get API key from environment variable
     if not expected_api_key or x_api_key != expected_api_key:
         raise HTTPException(status_code=401, detail="Invalid API Key")
@@ -412,33 +468,38 @@ def validate_api_key(x_api_key: str = Header(...)):
 
 app = FastAPI()
 
+@app.on_event("startup")
+async def startup():
+    await database.connect()
+
+@app.on_event("shutdown")
+async def shutdown():
+    await database.disconnect()
+
 # Other configurations and function definitions remain the same...
 
 @app.post('/generate-roles-report-pdf')
-async def generate_diagram(request: PdfRequest, api_key: str = Depends(validate_api_key)):
-    try:
-        # Fetch and save the SVG diagram
-        diagram_request = PdfRequest(description=request.description)
-        svg_content = await fetch_dfd_diagram(diagram_request)
-        svg_file_path = save_svg(svg_content)
-        message = "Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. App architecture: " + request.description
-        original_message = message
+async def generate_roles(request: PdfRequest, background_tasks: BackgroundTasks, api_key: str = Depends(validate_api_key)):
+    task_id = str(uuid.uuid4())
+    await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
+    print("Request description: ", request.description)
+    background_tasks.add_task(generate_pdf_background, task_id, request.description)
+    return {"task_id": task_id}
 
-        # Start the conversation with the user proxy
-        sys.stdout = DualOutput('conversation.log')
-        agents_B[0].initiate_chat(manager, message=message)
-        sys.stdout.log.close()
-        sys.stdout = sys.stdout.terminal
 
-        pdf_path = 'roles_report.pdf'
+@app.get("/get-roles-report/{task_id}")
+async def get_roles_report(task_id: str, api_key: str = Depends(validate_api_key)):
+    query = "SELECT status, filePath FROM TaskStatus WHERE id = :task_id"
+    result = await database.fetch_one(query, {"task_id": task_id})
 
-        if os.path.exists(pdf_path):
-            return FileResponse(pdf_path, media_type='application/pdf')
-        else:
-            raise HTTPException(status_code=404, detail="File not found")
+    if result is None:
+        raise HTTPException(status_code=404, detail="Task not found")
 
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail=str(e))
+    task_status, pdf_path = result['status'], result['filePath']
 
-#"""
+    if task_status == "completed" and os.path.exists(pdf_path):
+        return FileResponse(pdf_path, media_type='application/pdf')
+    elif task_status == "pending":
+        raise HTTPException(status_code=202, detail="Task is still processing")
+    else:
+        raise HTTPException(status_code=404, detail="PDF not found or task failed")
