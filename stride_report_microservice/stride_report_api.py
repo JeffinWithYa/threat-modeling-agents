@@ -11,6 +11,11 @@ import httpx
 from databases import Database
 import ssl
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+
+executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
+
 
 DATABASE_URL = os.getenv("DATABASE_URL") 
 ssl_context = ssl.create_default_context(cafile='/etc/ssl/certs/ca-certificates.crt')
@@ -226,6 +231,7 @@ img(style="width:100%; height:auto;" src="file:///usr/src/app/{{ image_path }}")
     pug_with_table = pug_template_string.replace("{{ table_rows }}", table_rows)
     pug_with_discussion = pug_with_table.replace("{{ agent_discussion }}", agent_discussion_pug)
     image_path = "dfd_" + task_id + ".svg"
+    print("\n\nIMAGE PATH: ", image_path)
 
 
     #print(pug_with_table)
@@ -293,6 +299,22 @@ sys.stdout = sys.stdout.terminal
 class PdfRequest(BaseModel):
     description: str
 
+def initiate_chat_blocking(task_id: str, request_description: str):
+    message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request_description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
+
+    # Start the conversation with the user proxy
+    sys.stdout = DualOutput(f'conversation_{task_id}.log')
+    print("STARTING CONVERSATION: ", message)
+
+    user_proxy.initiate_chat(
+        chatbot,
+        message=message
+    )
+    sys.stdout.log.close()
+    sys.stdout = sys.stdout.terminal
+
+
+
 async def fetch_dfd_diagram(app_architecture: PdfRequest):
     try:
         payload = app_architecture.dict()
@@ -332,28 +354,28 @@ def validate_api_key(x_api_key: str = Header(...)):
 
 async def generate_pdf_background(task_id: str, request_description: str):
     try:
-        message = "Perform a threat modeling exercise on the app architecture that identifies all app components, STRIDE threats on each component, and mitigations for each STRIDE Threat. App architecture: " + request.description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
 
-        # Start the conversation with the user proxy
-        sys.stdout = DualOutput(f'conversation_{task_id}.log')
-        print("STARTING CONVERSATION: ", message)
 
-        user_proxy.initiate_chat(
-            chatbot,
-            message=message
-        )
-        sys.stdout.log.close()
-        sys.stdout = sys.stdout.terminal
-
+        diagram_request = PdfRequest(description=request_description)
+        svg_content = await fetch_dfd_diagram(diagram_request)
+        print("\n\nBACK FROM FETCHING DFD DIAGRAM")
+        svg_file_name = "dfd_" + task_id + ".svg"
+        svg_file_path = save_svg(svg_content, svg_file_name)
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, initiate_chat_blocking, task_id, request_description)
+        
         pdf_path = f"stride_report_{task_id}.pdf"
-        print("\n\nPDF PATH: ", image_path)
+        print("\n\nPDF PATH: ", pdf_path)
 
         # Update the task status to completed and set the file path in the database
         await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": pdf_path})
 
+        
+
 
     except Exception as e:
-        print(e)
+        print("\n\n PDF CREATION FAILED", e)
         # Update the task status to failed in the database
         await database.execute("UPDATE TaskStatus SET status = :status, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "failed"})
 
@@ -411,14 +433,15 @@ async def generate_pdf(request: PdfRequest, api_key: str = Depends(validate_api_
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post('/generate-stride-report')
-async def generate_stride(request: DiagramRequest, background_tasks: BackgroundTasks, api_key: str = Depends(validate_api_key)):
+async def generate_stride(request: PdfRequest, background_tasks: BackgroundTasks, api_key: str = Depends(validate_api_key)):
     task_id = str(uuid.uuid4())
     await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
+    print("Request description: ", request.description)
     background_tasks.add_task(generate_pdf_background, task_id, request.description)
     return {"task_id": task_id}
 
 @app.get("/get-stride/{task_id}")
-async def get_diagram(task_id: str):
+async def get_stride(task_id: str, api_key: str = Depends(validate_api_key)):
     query = "SELECT status, filePath FROM TaskStatus WHERE id = :task_id"
     result = await database.fetch_one(query, {"task_id": task_id})
 
@@ -427,7 +450,7 @@ async def get_diagram(task_id: str):
 
     task_status, pdf_path = result['status'], result['filePath']
 
-    if task_status == "completed" and os.path.exists(image_path):
+    if task_status == "completed" and os.path.exists(pdf_path):
         return FileResponse(pdf_path, media_type='application/pdf')
     elif task_status == "pending":
         raise HTTPException(status_code=202, detail="Task is still processing")

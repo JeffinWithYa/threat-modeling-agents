@@ -375,7 +375,7 @@ async def fetch_dfd_diagram(app_architecture: PdfRequest):
     try:
         payload = app_architecture.dict()
         api_key = os.getenv("FASTAPI_KEY")  # Get the API key from environment variable
-        dfd_service_url = os.getenv("DFD_SERVICE_URL")  # Get the DFD service URL from environment variable
+        dfd_service_url = os.getenv("DFD_API_URL")  # Get the DFD service URL from environment variable
 
 
         headers = {

@@ -10,6 +10,11 @@ from pdf_reports import pug_to_html, write_report
 from databases import Database
 import ssl
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+
+executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
+
 
 
 DATABASE_URL = os.getenv("DATABASE_URL") 
@@ -18,9 +23,6 @@ ssl_context.check_hostname = False
 ssl_context.verify_mode = ssl.CERT_REQUIRED
 
 database = Database(DATABASE_URL, ssl=ssl_context)
-
-
-
 
 class DualOutput:
     def __init__(self, filename):
@@ -239,8 +241,8 @@ img(style="width:600px; height:600px; display:block; margin:0 auto; opacity:1;" 
                        )
 
     # Generate the report
-    pdf_path = "dfd_report" + task_id + ".pdf"
-    write_report(html, "dfd_report.pdf")
+    pdf_path = "dfd_report_" + task_id + ".pdf"
+    write_report(html, pdf_path)
     return "Report generated successfully"
     
 
@@ -272,21 +274,24 @@ user_proxy.register_function(
     }
 )
 
+def initiate_chat_blocking(task_id: str, request_description: str):
+    message = "Create a data flow diagram for the following app architecture: " + request_description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
+
+    # Start the conversation with the user proxy
+    sys.stdout = DualOutput(f'conversation_{task_id}.log')
+    print("STARTING CONVERSATION: ", message)
+
+    user_proxy.initiate_chat(
+        chatbot,
+        message=message
+    )
+    sys.stdout.log.close()
+    sys.stdout = sys.stdout.terminal
+
 async def generate_diagram_background(task_id: str, request_description: str):
     try:
-        message = "Create a data flow diagram for the following app architecture: " + request_description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
-
-        # Start the conversation with the user proxy
-        sys.stdout = DualOutput(f'conversation_{task_id}.log')
-        print("STARTING CONVERSATION: ", message)
-
-        user_proxy.initiate_chat(
-            chatbot,
-            message=message
-        )
-        sys.stdout.log.close()
-        sys.stdout = sys.stdout.terminal
-
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, initiate_chat_blocking, task_id, request_description)
         image_path = f"tm/{task_id}dfd.svg"
         print("\n\nIMAGE PATH: ", image_path)
 
@@ -331,33 +336,6 @@ async def generate_diagram(request: DiagramRequest, background_tasks: Background
     await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
     background_tasks.add_task(generate_diagram_background, task_id, request.description)
     return {"task_id": task_id}
-"""
-    try:
-        message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
-
-        # Start the conversation with the user proxy
-        sys.stdout = DualOutput('conversation.log')
-        print("STARTING CONVERSATION: ", message)
-
-
-        user_proxy.initiate_chat(
-            chatbot,
-            message=message
-        )
-        sys.stdout.log.close()
-        sys.stdout = sys.stdout.terminal
-
-        image_path = 'tm/dfd.svg'
-
-        if os.path.exists(image_path):
-            return FileResponse(image_path, media_type='image/svg')
-        else:
-            raise HTTPException(status_code=404, detail="Image not found")
-
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail=str(e))
-"""
 
 @app.post('/generate-diagram-pdf')
 async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
@@ -386,7 +364,7 @@ async def generate_diagram(request: DiagramRequest, api_key: str = Depends(valid
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get-diagram/{task_id}")
-async def get_diagram(task_id: str):
+async def get_diagram(task_id: str, api_key: str = Depends(validate_api_key)):
     query = "SELECT status, filePath FROM TaskStatus WHERE id = :task_id"
     result = await database.fetch_one(query, {"task_id": task_id})
 
@@ -401,4 +379,38 @@ async def get_diagram(task_id: str):
         raise HTTPException(status_code=202, detail="Task is still processing")
     else:
         raise HTTPException(status_code=404, detail="Image not found or task failed")
+
+@app.post('/generate-diagram-direct')
+async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
+    try:
+        task_id = str(uuid.uuid4())
+        await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
+
+
+        message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
+
+        # Start the conversation with the user proxy
+        sys.stdout = DualOutput(f'conversation_{task_id}.log')
+        print("STARTING CONVERSATION: ", message)
+
+
+        user_proxy.initiate_chat(
+            chatbot,
+            message=message
+        )
+        sys.stdout.log.close()
+        sys.stdout = sys.stdout.terminal
+
+        image_path = f"tm/{task_id}dfd.svg"
+        await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": image_path})
+
+
+        if os.path.exists(image_path):
+            return FileResponse(image_path, media_type='image/svg')
+        else:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
 
