@@ -415,12 +415,26 @@ async def get_diagram(task_id: str, api_key: str = Depends(validate_api_key)):
     task_status, image_path = result['status'], result['filePath']
     print("INFO: TASK STATUS in POLL: ", task_status)
 
-    if task_status == "completed" and os.path.exists(image_path):
-        return FileResponse(image_path, media_type='image/svg+xml')
+    if task_status == "completed":
+        attempts = 0
+        max_attempts = 5  # For example, retry 5 times
+        delay_seconds = 2  # Wait for 2 seconds between each retry
+
+        while not os.path.exists(image_path) and attempts < max_attempts:
+            print(f"Waiting for file to be available. Attempt {attempts + 1}")
+            await asyncio.sleep(delay_seconds)  # Async sleep for non-blocking wait
+            attempts += 1
+
+        if os.path.exists(image_path):
+            return FileResponse(image_path, media_type='image/svg+xml')
+        else:
+            raise HTTPException(status_code=404, detail="Image not found or task failed")
     elif task_status == "pending":
         raise HTTPException(status_code=202, detail="Task is still processing")
     else:
-        raise HTTPException(status_code=404, detail="Image not found or task failed")
+        raise HTTPException(status_code=404, detail="Task failed or invalid status")
+
+    
 
 @app.post('/generate-diagram-direct')
 async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
