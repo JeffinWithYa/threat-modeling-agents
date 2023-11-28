@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Response, status, Depends, Header, B
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
+import re
 from databases import Database
 import ssl
 import uuid
@@ -50,6 +51,7 @@ class DualOutput:
     def write(self, message):
         self.terminal.write(message)
         self.log.write(message)
+        self.log.flush()
 
     def flush(self):
         # This flush method is needed for compatibility with the standard output.
@@ -466,6 +468,9 @@ def validate_api_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=401, detail="Invalid API Key")
     return x_api_key
 
+def is_desired_format(message):
+    return re.search(r'.* \(to .*\):', message) is not None
+
 app = FastAPI()
 
 @app.on_event("startup")
@@ -503,3 +508,45 @@ async def get_roles_report(task_id: str, api_key: str = Depends(validate_api_key
         raise HTTPException(status_code=202, detail="Task is still processing")
     else:
         raise HTTPException(status_code=404, detail="PDF not found or task failed")
+    
+@app.get("/convo/{task_id}")
+async def get_last_message(task_id: str, api_key: str = Depends(validate_api_key)):
+    # Construct the file path for the conversation log
+    log_file_path = f"conversation_{task_id}.log"
+    print("INFO: LOG PATH in CONVO API: ", log_file_path)
+
+    
+    # Check if the log file exists
+    if not os.path.exists(log_file_path):
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    try:
+        # Open the log file and read the contents
+        with open(log_file_path, "r") as file:
+            conversation_log = file.read()
+        
+        # Check if the log is empty
+        if not conversation_log:
+            raise HTTPException(status_code=404, detail="Log file is empty")
+        
+        messages = conversation_log.split('--------------------------------------------------------------------------------')
+        # Iterate backwards through the messages to find the last one in the desired format
+        for message in reversed(messages):
+            if is_desired_format(message):
+                last_message_of_format = message
+                break
+        # Split the last message into lines and filter out lines that start with 'INFO:'
+        filtered_lines = [line for line in last_message_of_format.split('\n') if not line.startswith('INFO:') and line.strip()]
+
+        # Join the filtered lines back into a single string
+        filtered_message = '\n'.join(filtered_lines)
+
+
+        # print("INFO: LAST MESSAGE in LAST MESSAGE API: ", filtered_message)
+        
+        # Return the last message
+        return {"last_message": filtered_message}
+
+    except Exception as e:
+        # Handle any exceptions that occur
+        raise HTTPException(status_code=500, detail=str(e))
