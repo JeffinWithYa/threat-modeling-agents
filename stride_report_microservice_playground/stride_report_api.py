@@ -14,6 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import requests
 executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
+from typing import Any, Dict, List, Optional, Union
+
 
 
 DATABASE_URL = os.getenv("DATABASE_URL") 
@@ -32,6 +34,7 @@ class DualOutput:
     def write(self, message):
         self.terminal.write(message)
         self.log.write(message)
+        self.log.flush()
 
     def flush(self):
         # This flush method is needed for compatibility with the standard output.
@@ -328,8 +331,8 @@ def fetch_dfd_diagram(app_architecture: PdfRequest):
         if response.status_code == 200:
             return response.text
         else:
-            print("Response Status:", response.status_code)
-            # print("Response Content:", response.text)
+            #print("Response Status:", response.status_code)
+            #print("Response Content:", response.text)
             raise HTTPException(status_code=500, detail="Error fetching data flow diagram")
     except Exception as e:
         print(e)
@@ -341,7 +344,7 @@ def save_svg(svg_content, file_path="dfd_diagram.svg"):
     return file_path
 
 def validate_api_key(x_api_key: str = Header(...)):
-    print("\n\nValidating API key\n\n")
+    #print("\n\nValidating API key\n\n")
     expected_api_key = os.getenv("FASTAPI_KEY")  # Get API key from environment variable
     if not expected_api_key or x_api_key != expected_api_key:
         raise HTTPException(status_code=401, detail="Invalid API Key")
@@ -350,8 +353,6 @@ def validate_api_key(x_api_key: str = Header(...)):
 async def generate_pdf_background(task_id: str, request_description: str):
     try:
         loop = asyncio.get_event_loop()
-
-
 
         diagram_request = PdfRequest(description=request_description)
         svg_content = await loop.run_in_executor(executor, fetch_dfd_diagram, diagram_request)
@@ -373,6 +374,8 @@ async def generate_pdf_background(task_id: str, request_description: str):
         # Update the task status to failed in the database
         await database.execute("UPDATE TaskStatus SET status = :status, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "failed"})
 
+def is_desired_format(message):
+    return re.search(r'.* \(to .*\):', message) is not None
 # Create a FastAPI instance
 app = FastAPI()
 
@@ -430,7 +433,7 @@ async def generate_pdf(request: PdfRequest, api_key: str = Depends(validate_api_
 async def generate_stride(request: PdfRequest, background_tasks: BackgroundTasks, api_key: str = Depends(validate_api_key)):
     task_id = str(uuid.uuid4())
     await database.execute("INSERT INTO TaskStatus (id, status, createdAt, updatedAt) VALUES (:id, :status, NOW(), NOW())", {"id": task_id, "status": "pending"})
-    #print("Request description: ", request.description)
+    print("Request description: ", request.description)
     background_tasks.add_task(generate_pdf_background, task_id, request.description)
     return {"task_id": task_id}
 
@@ -444,11 +447,62 @@ async def get_stride(task_id: str, api_key: str = Depends(validate_api_key)):
 
     task_status, pdf_path = result['status'], result['filePath']
 
-    if task_status == "completed" and os.path.exists(pdf_path):
-        return FileResponse(pdf_path, media_type='application/pdf')
+    if task_status == "completed":
+        attempts = 0
+        max_attempts = 5
+        delay_seconds = 2
+        while not os.path.exists(pdf_path) and attempts < max_attempts:
+            await asyncio.sleep(delay_seconds)
+            attempts += 1
+        
+        if os.path.exists(pdf_path):
+            return FileResponse(pdf_path, media_type='application/pdf')
+        else:
+            raise HTTPException(status_code=404, detail="File not found or task failed")
     elif task_status == "pending":
         raise HTTPException(status_code=202, detail="Task is still processing")
     else:
         raise HTTPException(status_code=404, detail="PDF not found or task failed")
 
+@app.get("/convo/{task_id}")
+async def get_last_message(task_id: str, api_key: str = Depends(validate_api_key)):
+    # Construct the file path for the conversation log
+    log_file_path = f"conversation_{task_id}.log"
+    print("INFO: LOG PATH in CONVO API: ", log_file_path)
+
+    
+    # Check if the log file exists
+    if not os.path.exists(log_file_path):
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    try:
+        # Open the log file and read the contents
+        with open(log_file_path, "r") as file:
+            conversation_log = file.read()
+        
+        # Check if the log is empty
+        if not conversation_log:
+            raise HTTPException(status_code=404, detail="Log file is empty")
+        
+        messages = conversation_log.split('--------------------------------------------------------------------------------')
+        # Iterate backwards through the messages to find the last one in the desired format
+        for message in reversed(messages):
+            if is_desired_format(message):
+                last_message_of_format = message
+                break
+        # Split the last message into lines and filter out lines that start with 'INFO:'
+        filtered_lines = [line for line in last_message_of_format.split('\n') if not line.startswith('INFO:') and line.strip()]
+
+        # Join the filtered lines back into a single string
+        filtered_message = '\n'.join(filtered_lines)
+
+
+        # print("INFO: LAST MESSAGE in LAST MESSAGE API: ", filtered_message)
+        
+        # Return the last message
+        return {"last_message": filtered_message}
+
+    except Exception as e:
+        # Handle any exceptions that occur
+        raise HTTPException(status_code=500, detail=str(e))
 

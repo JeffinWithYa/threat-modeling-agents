@@ -457,6 +457,12 @@ async def generate_diagram(request: DiagramRequest, api_key: str = Depends(valid
             max_consecutive_auto_reply=5,
             code_execution_config={"work_dir": "coding"},
         )
+                # register the functions
+        user_proxy.register_function(
+            function_map={
+                "python": exec_python        
+            }
+        )
         chatbot = ThreatModelingAgent(
             task_id=task_id
         )
