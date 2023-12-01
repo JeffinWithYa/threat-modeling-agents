@@ -2,15 +2,9 @@ import autogen
 from autogen.agentchat.groupchat import GroupChat
 from autogen.agentchat.agent import Agent
 from autogen.agentchat.assistant_agent import AssistantAgent
-from pdf_reports import pug_to_html, write_report
+import random
+from typing import List, Dict
 import sys
-
-config_list = autogen.config_list_from_json(
-    env_or_file="OAI_CONFIG_LIST",
-    filter_dict={
-        "model": ["gpt-4-1106-preview"],
-    },
-)
 
 class DualOutput:
     def __init__(self, filename):
@@ -20,16 +14,22 @@ class DualOutput:
     def write(self, message):
         self.terminal.write(message)
         self.log.write(message)
+        self.log.flush()
 
     def flush(self):
         # This flush method is needed for compatibility with the standard output.
         self.terminal.flush()
         self.log.flush()
 
-llm_config = {"config_list": config_list}
+config_list = autogen.config_list_from_json(
+    "OAI_CONFIG_LIST",
+    file_location="./",
+    filter_dict={
+        "model": ["gpt-4-1106-preview"],
+    },
+)
 
-import random
-from typing import List, Dict
+llm_config = {"config_list": config_list}
 
 class CustomGroupChat(GroupChat):
     def __init__(self, agents, messages, max_round=10):
@@ -80,155 +80,9 @@ class CustomGroupChat(GroupChat):
 def is_termination_msg(content) -> bool:
     have_content = content.get("content", None) is not None
     if have_content and "TERMINATE" in content["content"]:
-        #print("\n\nGROUPCHAT MESSAGES", group_chat.messages)
-        results = parse_report_details(group_chat.messages)
-        print("\n\nRESULTS", results)
-        exec_python(results)
-
-
         return True
     return False
-"""
-def generate_pug_table_rows(details):
-    rows = []
-    for role, messages in details.items():
-        # Assuming messages are stored in a list, and the last message is the most recent
-        last_message = messages[-1] if messages else "No messages"
-        row = f"<tr><td>{role}</td><td>{last_message}</td></tr>"
-        rows.append(row)
-    return "\n".join(rows)
-"""
 
-def generate_pug_table_rows(data):
-    pug_rows = []
-    pug_rows.append("\n")
-    
-    for role, messages in data.items():
-        # messages are in a list and the last message is most recent
-        last_message = messages[-1] if messages else "No feedback"
-
-        # Split the last_message into lines
-        message_lines = last_message.split('\n')
-
-        # Start a new row
-        pug_row = "    tr\n"
-
-        # Add the role to the row
-        pug_row += f"      td {role}\n"
-
-        # Add the message to the row, handling multiple lines
-        pug_row += "      td\n"
-        for line in message_lines:
-            pug_row += f"        | {line}\n"
-
-        pug_rows.append(pug_row)
-    
-    return "\n".join(pug_rows)
-
-def exec_python(results):
-
-    # Assuming 'Team A Leader' and 'Team B Leader' are the team leaders
-    team_leader_A_last_message = results.get("Team A Leader", [""])[-1]
-    team_leader_B_last_message = results.get("Team B Leader", [""])[-1] 
-
-    pug_template_string = """img(style="width:200px; display:block; margin:0 auto; opacity:1;" src="file:///usr/src/app/threat_agents_team.svg")
-#sidebar
-
-.ui.stacked.segment.inverted.grey: p.
-  This is an auto-generated Threat Modeling Report, assembled by GPT-4 Threat Modeling Agents. 
-  The system reviews the specified application architecture. 
-  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats, but may still contain errors.
-  
-.ui.container
-  .ui.icon.message.blue.block-center
-    i.exclamation.circle.icon
-    .content
-      .header Executive Summary
-      p.
-        {{ important_message_body }}
-
-
-:markdown
-    ## Results
-table.ui.celled.table
-  thead
-    tr
-      th Role
-      th Analysis
-  tbody
-      {{ table_rows }}
-
-:markdown
-    ## Appendix
-    ### Team Leaders Weigh In
-    p.
-    waddup
-    
-
-"""
-
-
-    # team_members = "Team A: A2 (engineer), A3 (architect). Team B: B2 (compliance officer), B3 (business stakeholder), and B4 (Threat Modeler)."
-    important_message_body = """This report outlines the key findings and recommendations from a threat modeling exercise focused on a given application architecture (see appendix), with contributions from two distinct teams.
-
-Team Composition and Perspectives:
-
-Team A: Comprising A2 (Engineer) and A3 (Architect), focused on technical vulnerabilities and architectural improvements.
-Team B: Including B2 (Compliance Officer), B3 (Business Stakeholder), and B4 (Threat Modeler), emphasizing compliance, business impact, and holistic threat modeling. 
-
-Key outcomes of the exercise include:
-
-Identification of Critical Threats: The team pinpoints several high-priority threats that could significantly impact the application's security. These include risks related to data breaches, unauthorized access, and system downtimes.
-
-Mitigation Strategies: For each identified threat, the team proposes tailored mitigation strategies. These range from immediate short-term fixes to long-term structural changes in the application's architecture.
-
-Prioritization of Actions: The team has collectively prioritized the proposed actions based on the severity of threats and the feasibility of implementing solutions. This prioritization aims to optimize resource allocation and ensure a rapid response to the most critical issues.
-
-"""
-    table_rows = generate_pug_table_rows(results)
-    print("\n\ntable rows\n\n", table_rows)
-    pug_with_table = pug_template_string.replace("{{ table_rows }}", table_rows)
-
-    print("\n\npug with table\n\n", pug_with_table)
-
-    html = pug_to_html(string=pug_with_table, 
-                       important_message_body=important_message_body)
-
-    # Generate the report
-    write_report(html, "stakeholder_report.pdf")
-    return "Report generated successfully"
-
-
-def parse_report_details(messages):
-    stakeholders = {
-    "A1": "Team A Leader",
-    "A2": "Engineering",
-    "A3": "Architecture",
-    "B1": "Team B Leader",
-    "B2": "Compliance Officer",
-    "B3": "Business Stakeholder",
-    "B4": "Threat Modeler",
-    "User_proxy": "Human User"
-    }
-    
-    results = {}
-
-    for message in messages:
-        if isinstance(message, dict) and 'content' in message and 'name' in message:
-            role = stakeholders.get(message['name'])
-            if role:
-                if role == "Threat Modeler" and message['content'].startswith('STRIDE/DREAD Analysis:'):
-                    report_details = message['content']
-                    results.setdefault(role, []).append(report_details)
-
-                else:
-                    prefix = f"{role} Discussion:"
-                    if message['content'].startswith(prefix):
-                        report_details = message['content']
-                        results.setdefault(role, []).append(report_details)
-
-    #print("PUG table results", results)
-    return results
 # Initialization
 agents_A = [
     AssistantAgent(name='A1', 
@@ -269,23 +123,25 @@ list_of_agents = agents_A + agents_B
 list_of_agents.append(user_proxy)
 
 # Create CustomGroupChat
+"""
 group_chat = CustomGroupChat(
     agents=list_of_agents,  # Include all agents
     messages=['Everyone cooperates and help B4 in their task. Team A has A1, A2 (engineer), A3 (architect). Team B has B1, B2 (compliance officer), and B3 (business stakeholder), and B4. Only members of the same team can talk to one another. Only team leaders (names ending with 1) can talk amongst themselves. You must use "NEXT: B1" to suggest talking to B1 for example; You can suggest only one person, you cannot suggest yourself or the previous speaker. Team leaders can identify the components and attack vectors in the app architecture, and do an analysis of each identified component/vector using STRIDE and DREAD - which they provide to their team.'],
-    max_round=30
+    max_round=11
 )
-
-
-# Create the manager
-llm_config = {"config_list": config_list, "seed": 28}  # cache_seed is None because we want to observe if there is any communication pattern difference if we reran the group chat.
+"""
+group_chat = autogen.GroupChat(agents=list_of_agents, messages=[], max_round=50)
 
 manager = autogen.GroupChatManager(groupchat=group_chat, llm_config=llm_config)
 
-app_architecture = "The application architecture is a web application with a database. The web application is written in Python and uses the Flask framework. The database is a MySQL database. The web application is hosted on AWS EC2. The web application is a simple blog application that allows users to create posts and comment on posts. The web application uses a MySQL database to store the posts and comments. The web application uses the Flask framework to handle requests and responses. The web application uses the Jinja2 templating engine to render HTML templates. The web application uses the WTForms library to handle forms. The web application uses the Flask-Login library to handle user authentication. The web application uses the Flask-WTF library to handle forms. The web application uses the Flask-Bootstrap library to handle forms. The web application uses the Flask-Admin library to handle forms. The web application uses the Flask-RESTful library to handle forms."
+app_architecture = "Frontend hosted on Vercel, talking to 4 microservices behind an AWS WAF. The microservices are running in containers hosted on AWS AppRunner. The frontend and backend post updates to a mysql database hosted on PlanetScale"
 message = "Identify the components and attack vectors in this app architecture, and then get an analysis of each identified component/vector using STRIDE and DREAD. App architecture: " + app_architecture
 
 
+# Test without FastAPI
 sys.stdout = DualOutput('conversation.log')
+
 agents_B[0].initiate_chat(manager, message=message)
 sys.stdout.log.close()
 sys.stdout = sys.stdout.terminal
+

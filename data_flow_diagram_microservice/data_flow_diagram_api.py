@@ -12,8 +12,65 @@ import ssl
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+from typing import Any, Dict, List, Optional, Union
+from autogen import Agent
+
 
 executor = ThreadPoolExecutor(max_workers=4)  # Adjust based on your needs
+sys_message = """Using only the functions available to you, you create data flow diagrams by writing a pytm script to a file and outputting the data flow diagram. The pytm script is being injected into a template, so do not write any imports, with statements, or a main function. Here is an example pytm script that you should base your output off of. Note that it first defines the app components, and then how data flows between them. You should only pass 3 arguments to DataFlow().: 
+            tm = TM("Game App Data Flow")
+        tm.description = "Threat model for an application architecture with various services."
+        tm.isOrdered = True
+        tm.mergeResponses = True
+
+        internet = Boundary("Internet")
+
+        aws_cloud = Boundary("AWS Cloud")
+
+        user = Actor("User")
+        user.inBoundary = internet
+
+        cognito = ExternalEntity("Amazon Cognito")
+        cognito.inBoundary = aws_cloud
+
+        s3 = Datastore("Amazon S3")
+        s3.inBoundary = aws_cloud
+
+        gamelift = ExternalEntity("Amazon GameLift")
+        gamelift.inBoundary = aws_cloud
+
+        appsync = Process("AWS AppSync")
+        appsync.inBoundary = aws_cloud
+
+        analytics = Process("AWS Analytics")
+        analytics.inBoundary = aws_cloud
+
+        pinpoint = ExternalEntity("Amazon Pinpoint")
+        pinpoint.inBoundary = aws_cloud
+
+        # Data definitions
+        game_assets = Data("Game Assets")
+        game_state = Data("Game State")
+
+        # Dataflows
+        user_to_cognito = Dataflow(user, cognito, "User Authentication")
+        user_to_s3 = Dataflow(user, s3, "Fetch Game Assets")
+
+        Reply 'TERMINATE' when done.    
+            """
+
+
+class ThreatModelingAgent(autogen.AssistantAgent):
+    def __init__(self, task_id):
+        super().__init__(
+            name="chatbot",
+            system_message=sys_message,    
+            llm_config=llm_config,
+            max_consecutive_auto_reply=10,
+        )
+        #self.register_reply(autogen.ConversableAgent, ThreatModelingAgent._update_db)
+        self.task_id = ""
+
 
 
 
@@ -32,6 +89,7 @@ class DualOutput:
     def write(self, message):
         self.terminal.write(message)
         self.log.write(message)
+        self.log.flush()
 
     def flush(self):
         # This flush method is needed for compatibility with the standard output.
@@ -100,60 +158,7 @@ llm_config = {
     "seed": 79,  # change the seed for different trials
 
 }
-chatbot = autogen.AssistantAgent(
-    name="chatbot",
-    system_message="""Using only the functions available to you, you create data flow diagrams by writing a pytm script to a file and outputting the data flow diagram. The pytm script is being injected into a template, so do not write any imports, with statements, or a main function. Here is an example pytm script that you should base your output off of. Note that it first defines the app components, and then how data flows between them. You should only pass 3 arguments to DataFlow().: 
-    tm = TM("Game App Data Flow")
-tm.description = "Threat model for an application architecture with various services."
-tm.isOrdered = True
-tm.mergeResponses = True
 
-internet = Boundary("Internet")
-
-aws_cloud = Boundary("AWS Cloud")
-
-user = Actor("User")
-user.inBoundary = internet
-
-cognito = ExternalEntity("Amazon Cognito")
-cognito.inBoundary = aws_cloud
-
-s3 = Datastore("Amazon S3")
-s3.inBoundary = aws_cloud
-
-gamelift = ExternalEntity("Amazon GameLift")
-gamelift.inBoundary = aws_cloud
-
-appsync = Process("AWS AppSync")
-appsync.inBoundary = aws_cloud
-
-analytics = Process("AWS Analytics")
-analytics.inBoundary = aws_cloud
-
-pinpoint = ExternalEntity("Amazon Pinpoint")
-pinpoint.inBoundary = aws_cloud
-
-# Data definitions
-game_assets = Data("Game Assets")
-game_state = Data("Game State")
-
-# Dataflows
-user_to_cognito = Dataflow(user, cognito, "User Authentication")
-user_to_s3 = Dataflow(user, s3, "Fetch Game Assets")
-
-Reply 'TERMINATE' when done.    
-    """,
-    llm_config=llm_config,
-)
-
-# create a UserProxyAgent instance named "user_proxy"
-user_proxy = autogen.UserProxyAgent(
-    name="user_proxy",
-    is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
-    human_input_mode="NEVER",
-    max_consecutive_auto_reply=5,
-    code_execution_config={"work_dir": "coding"},
-)
 
 # define functions according to the function desription
 
@@ -186,7 +191,7 @@ if __name__ == "__main__":
         with open("pytm_script.py", 'w') as file:
             file.write(formatted_template)
 
-    print("pytm File written successfully")
+    print("INFO: pytm File written successfully")
     exec_sh("sh", task_id)
 
         # Create PDF
@@ -261,25 +266,39 @@ def exec_sh(script, task_id):
 
     # Check if the command was successful
     if process.returncode == 0:
-        print("Command executed successfully.")
+        print("INFO: Command executed successfully.")
         #print(stdout.decode())
     else:
-        print("An error occurred while executing the command.")
+        print("INFO: An error occurred while executing the command.")
         #print(stderr.decode())
 
-# register the functions
-user_proxy.register_function(
-    function_map={
-        "python": exec_python        
-    }
-)
+
 
 def initiate_chat_blocking(task_id: str, request_description: str):
+
+    chatbot = ThreatModelingAgent(
+        task_id=task_id
+    )
+
+    # create a UserProxyAgent instance named "user_proxy"
+    user_proxy = autogen.UserProxyAgent(
+        name="user_proxy",
+        is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
+        human_input_mode="NEVER",
+        max_consecutive_auto_reply=5,
+        code_execution_config={"work_dir": "coding"},
+    )
+        # register the functions
+    user_proxy.register_function(
+        function_map={
+            "python": exec_python        
+        }
+    )
     message = "Create a data flow diagram for the following app architecture: " + request_description + "DESCRIPTION_END" + ". When calling functions, use task_id: " + task_id + " as the second argument."
 
     # Start the conversation with the user proxy
     sys.stdout = DualOutput(f'conversation_{task_id}.log')
-    print("STARTING CONVERSATION: ", message)
+    print("INFO: STARTING CONVERSATION: ", message)
 
     user_proxy.initiate_chat(
         chatbot,
@@ -293,17 +312,19 @@ async def generate_diagram_background(task_id: str, request_description: str):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(executor, initiate_chat_blocking, task_id, request_description)
         image_path = f"tm/{task_id}dfd.svg"
-        print("\n\nIMAGE PATH: ", image_path)
+        print("INFO:\n\nIMAGE PATH: ", image_path)
 
         # Update the task status to completed and set the file path in the database
         await database.execute("UPDATE TaskStatus SET status = :status, filePath = :filePath, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "completed", "filePath": image_path})
 
 
     except Exception as e:
-        print(e)
+        #print(e)
         # Update the task status to failed in the database
         await database.execute("UPDATE TaskStatus SET status = :status, updatedAt = NOW() WHERE id = :id", {"id": task_id, "status": "failed"})
 
+def is_desired_format(message):
+    return re.search(r'.* \(to .*\):', message) is not None
 
 
 # Define your Pydantic model for request validation
@@ -311,7 +332,7 @@ class DiagramRequest(BaseModel):
     description: str
 
 def validate_api_key(x_api_key: str = Header(...)):
-    print("\n\nValidating API key\n\n")
+    #print("\n\nValidating API key\n\n")
     expected_api_key = os.getenv("FASTAPI_KEY")  # Get API key from environment variable
     if not expected_api_key or x_api_key != expected_api_key:
         raise HTTPException(status_code=401, detail="Invalid API Key")
@@ -341,10 +362,30 @@ async def generate_diagram(request: DiagramRequest, background_tasks: Background
 async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
     try:
         message = "Create a data flow diagram for the following app architecture: " + request.description + "DESCRIPTION_END"
+        task_id = str(uuid.uuid4())
+
 
         # Start the conversation with the user proxy
         sys.stdout = DualOutput('conversation.log')
-        print("STARTING CONVERSATION: ", message)
+        print("INFO: STARTING CONVERSATION: ", message)
+        chatbot = ThreatModelingAgent(
+            task_id=task_id
+        )
+
+        # create a UserProxyAgent instance named "user_proxy"
+        user_proxy = autogen.UserProxyAgent(
+            name="user_proxy",
+            is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
+            human_input_mode="NEVER",
+            max_consecutive_auto_reply=5,
+            code_execution_config={"work_dir": "coding"},
+        )
+            # register the functions
+        user_proxy.register_function(
+            function_map={
+                "python": exec_python        
+            }
+        )
 
         user_proxy.initiate_chat(
             chatbot,
@@ -372,13 +413,28 @@ async def get_diagram(task_id: str, api_key: str = Depends(validate_api_key)):
         raise HTTPException(status_code=404, detail="Task not found")
 
     task_status, image_path = result['status'], result['filePath']
+    print("INFO: TASK STATUS in POLL: ", task_status)
 
-    if task_status == "completed" and os.path.exists(image_path):
-        return FileResponse(image_path, media_type='image/svg+xml')
+    if task_status == "completed":
+        attempts = 0
+        max_attempts = 5  # For example, retry 5 times
+        delay_seconds = 2  # Wait for 2 seconds between each retry
+
+        while not os.path.exists(image_path) and attempts < max_attempts:
+            print(f"Waiting for file to be available. Attempt {attempts + 1}")
+            await asyncio.sleep(delay_seconds)  # Async sleep for non-blocking wait
+            attempts += 1
+
+        if os.path.exists(image_path):
+            return FileResponse(image_path, media_type='image/svg+xml')
+        else:
+            raise HTTPException(status_code=404, detail="Image not found or task failed")
     elif task_status == "pending":
         raise HTTPException(status_code=202, detail="Task is still processing")
     else:
-        raise HTTPException(status_code=404, detail="Image not found or task failed")
+        raise HTTPException(status_code=404, detail="Task failed or invalid status")
+
+    
 
 @app.post('/generate-diagram-direct')
 async def generate_diagram(request: DiagramRequest, api_key: str = Depends(validate_api_key)):
@@ -391,7 +447,25 @@ async def generate_diagram(request: DiagramRequest, api_key: str = Depends(valid
 
         # Start the conversation with the user proxy
         sys.stdout = DualOutput(f'conversation_{task_id}.log')
-        print("STARTING CONVERSATION: ", message)
+        print("INFO: STARTING CONVERSATION: ", message)
+
+        # create a UserProxyAgent instance named "user_proxy"
+        user_proxy = autogen.UserProxyAgent(
+            name="user_proxy",
+            is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
+            human_input_mode="NEVER",
+            max_consecutive_auto_reply=5,
+            code_execution_config={"work_dir": "coding"},
+        )
+                # register the functions
+        user_proxy.register_function(
+            function_map={
+                "python": exec_python        
+            }
+        )
+        chatbot = ThreatModelingAgent(
+            task_id=task_id
+        )
 
 
         user_proxy.initiate_chat(
@@ -411,6 +485,50 @@ async def generate_diagram(request: DiagramRequest, api_key: str = Depends(valid
             raise HTTPException(status_code=404, detail="Image not found")
 
     except Exception as e:
-        print(e)
+        #print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/convo/{task_id}")
+async def get_last_message(task_id: str, api_key: str = Depends(validate_api_key)):
+    # Construct the file path for the conversation log
+    log_file_path = f"conversation_{task_id}.log"
+    print("INFO: LOG PATH in CONVO API: ", log_file_path)
+
+    
+    # Check if the log file exists
+    if not os.path.exists(log_file_path):
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    try:
+        # Open the log file and read the contents
+        with open(log_file_path, "r") as file:
+            conversation_log = file.read()
+        
+        # Check if the log is empty
+        if not conversation_log:
+            raise HTTPException(status_code=404, detail="Log file is empty")
+        
+        messages = conversation_log.split('--------------------------------------------------------------------------------')
+        # Iterate backwards through the messages to find the last one in the desired format
+        for message in reversed(messages):
+            if is_desired_format(message):
+                last_message_of_format = message
+                break
+        # Split the last message into lines and filter out lines that start with 'INFO:'
+        filtered_lines = [line for line in last_message_of_format.split('\n') if not line.startswith('INFO:') and line.strip()]
+
+        # Join the filtered lines back into a single string
+        
+
+        filtered_message = '\n'.join(filtered_lines)
+
+
+        #print("INFO: LAST MESSAGE in LAST MESSAGE API: ", filtered_message)
+        
+        # Return the last message
+        return {"last_message": filtered_message}
+
+    except Exception as e:
+        # Handle any exceptions that occur
         raise HTTPException(status_code=500, detail=str(e))
 
