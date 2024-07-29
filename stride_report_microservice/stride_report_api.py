@@ -162,9 +162,7 @@ def exec_python(cell, details, longform, task_id):
 #sidebar
 
 .ui.stacked.segment.inverted.grey: p.
-  This is an auto-generated Threat Modeling Report, assembled by GPT-4 Threat Modeling Agents. 
-  The system reviews the specified application architecture. 
-  It applies the STRIDE methodology to each component, providing a thorough evaluation of potential security threats, but may still contain errors.
+  Threat Modeling Report
   
 .ui.container
   .ui.icon.message.blue.block-center
@@ -194,24 +192,6 @@ img(style="width:100%; height:auto;" src="file:///usr/src/app/{{ image_path }}")
     ##  Discussion
     {{ longform }}
 
-:markdown
-    ## Appendix
-
-.ui.container
-  .ui.icon.message.yellow.block-center
-    i.exclamation.circle.icon
-    .content
-      .header Original Prompt and Inputted App Architecture
-      p.
-        {{ original_prompt }}
-
-:markdown
-    ### Usage Costs
-        #### Total Cost: ${{ total_cost }} USD
-        #### Input Tokens Cost: ${{ total_input }} USD
-        #### Output Tokens Cost: ${{ total_output }} USD
-    ### Conversation Log
-      {{ agent_discussion }}
       """
 
 
@@ -344,7 +324,7 @@ def save_svg(svg_content, file_path="dfd_diagram.svg"):
     return file_path
 
 def validate_api_key(x_api_key: str = Header(...)):
-    #print("\n\nValidating API key\n\n")
+    print("\n\nValidating API key\n\n")
     expected_api_key = os.getenv("FASTAPI_KEY")  # Get API key from environment variable
     if not expected_api_key or x_api_key != expected_api_key:
         raise HTTPException(status_code=401, detail="Invalid API Key")
