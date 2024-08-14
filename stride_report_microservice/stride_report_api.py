@@ -62,24 +62,26 @@ def calculate_cost(conversation_log):
     return total_cost, total_input, total_output
 
 
-config_list = autogen.config_list_from_json(
-    env_or_file="OAI_CONFIG_LIST",
-    filter_dict={
-        "model": ["gpt-4-1106-preview"],
-    },
-)
+config_mode = os.getenv("CONFIG_MODE", "local")  # Default to local
 
+if config_mode == "production":
+    config_list = autogen.config_list_from_json(
+        env_or_file="OAI_CONFIG_LIST",
+        filter_dict={
+            "model": ["gpt-4-1106-preview"],
+        },
+    )
+elif config_mode == "local":
+    config_list = autogen.config_list_from_json(
+        "OAI_CONFIG_LIST",
+        file_location="../",
+        filter_dict={
+            "model": ["gpt-4-1106-preview"],
+        },
+    )
+else:
+    raise ValueError(f"Unknown deployment mode: {config_mode}")
 
-# for local testing
-"""
-config_list = autogen.config_list_from_json(
-    "OAI_CONFIG_LIST",
-    file_location="../",
-    filter_dict={
-        "model": ["gpt-4-1106-preview"],
-    },
-)
-"""
 llm_config = {
     "functions": [
         {
