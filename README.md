@@ -13,7 +13,7 @@ See the examples directory for example outputs (images, pdfs) from each API
 
 ### Prerequisites
 
-### Set up the micfrontendroservices. See threat-modeling-agents-frontend repo (below) for details
+### Set up the frontend. See threat-modeling-agents-frontend repo (below) for details
 
 ```shell
 git clone https://github.com/JeffinWithYa/threat-modeling-agents-frontend
@@ -83,6 +83,8 @@ http://127.0.0.1:4001/get-stride/<task-id>
 Don't forget to also add a header to this request: 'x-api-key' = <UNIQUE-KEY-YOU-CREATE-THATS-SHARED-BETWEEN-MICROSERVICES>
 
 ```
+
+[Example of outputted Threat Modeling Report](examples/stride_report_api/stride_report_flask_blog.pdf)
 
 
 
