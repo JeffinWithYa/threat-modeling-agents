@@ -84,7 +84,8 @@ Don't forget to also add a header to this request: 'x-api-key' = <UNIQUE-KEY-YOU
 
 ```
 
-[Example of outputted Threat Modeling Report](examples/stride_report_api/stride_report_flask_blog.pdf)
+[View example of outputted Threat Modeling Report](https://github.com/your-username/your-repo/blob/your-branch/examples/stride_report_api/stride_report_flask_blog.pdf)
+
 
 
 
